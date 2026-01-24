@@ -253,21 +253,6 @@ class ResearchAgent:
 
     def _synthesize_step(self) -> str:
         """分析 Progress 并更新 Findings"""
-        def _filter_progress(self, text: str, max_lines: int = 500) -> str:
-                if not text: return ""
-                lines = [line.strip() for line in text.split('\n')]
-                total_lines = len(lines)
-                if total_lines > max_lines:
-                    content = "\n".join(lines[:max_lines])
-                    return f"""
-        IMPORTANT: The content has been truncated.
-        Status: Showing lines 1-{max_lines} of {total_lines} total lines.
-        Action: To read more of the content, you can adjust the research parameters or check the raw logs.
-
-        --- CONTENT (truncated) ---
-        {content}"""
-                return "\n".join(lines)
-
         logger.info("Synthesizing information...")
 
         raw_progress = self.state.read_progress()
@@ -278,8 +263,9 @@ class ResearchAgent:
             logger.info("No new progress to synthesize.")
             return ""
 
-        # Filter progress to remove noise
-        progress = _filter_progress(self, raw_progress, 2000)
+        # Progress is now summarized by the search tool, so we treat it as processed content.
+        # We still keep the raw string, but semantically it is "Processed Progress".
+        progress = raw_progress
 
         prompt = SYNTHESIZE_PROMPT.format(
             user_goal=self.user_goal,
@@ -291,9 +277,14 @@ class ResearchAgent:
         try:
             logger.info("Synthesizing start...")
             new_insight = self.llm.query(prompt)
-            logger.info("Synthesizing logging...")
-            self.state.add_finding(new_insight)
-            logger.info("Synthesizing Findings updated.")
+            logger.info("Synthesizing completed.")
+
+            if "No new insights." in new_insight:
+                 logger.info("No new insights found during synthesis.")
+            else:
+                self.state.add_finding(new_insight)
+                logger.info("Synthesizing Findings updated.")
+
             return new_insight
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
