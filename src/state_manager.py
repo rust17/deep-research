@@ -52,8 +52,8 @@ class StateManager:
         if not content:
             return None
         
-        # 查找第一个未完成的任务 "- [ ] Task"
-        match = re.search(r'- \[ \] (.*)', content)
+        # 查找第一个未完成的任务，支持 "- [ ]" 和 "- [pending]"
+        match = re.search(r'- \[(?: |pending)\] (.*)', content)
         if match:
             return match.group(1).strip()
         return None
@@ -67,13 +67,18 @@ class StateManager:
         lines = content.split('\n')
         
         for i, line in enumerate(lines):
-            # 检查行中是否包含未完成标记和任务文本
-            # 简单的包含检查通常足够，因为 read_plan 也是按顺序读取的
-            if "- [ ]" in line and task_text in line:
-                # 仅替换该行的标记
-                lines[i] = line.replace("- [ ]", "- [x]", 1)
-                self.write_plan("\n".join(lines))
-                return
+            # 检查行中是否包含任务文本
+            if task_text in line:
+                # 适配 [ ] -> [x]
+                if "- [ ]" in line:
+                    lines[i] = line.replace("- [ ]", "- [x]", 1)
+                    self.write_plan("\n".join(lines))
+                    return
+                # 适配 [pending] -> [completed]
+                elif "- [pending]" in line:
+                    lines[i] = line.replace("- [pending]", "- [completed]", 1)
+                    self.write_plan("\n".join(lines))
+                    return
 
     # --- Findings Operations ---
     def add_finding(self, finding: str):
