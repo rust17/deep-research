@@ -9,7 +9,7 @@ from rich.markdown import Markdown
 
 from src.state_manager import StateManager
 from src.llm_client import LLMClient
-from src.tools import web_research, write_todos
+from src.tools import web_research, write_todos, web_fetch
 from src.prompts import INIT_PLAN_PROMPT, DECISION_PROMPT, REPORT_PROMPT, SYNTHESIZE_PROMPT, TASK_COMPLETION_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -176,8 +176,15 @@ class ResearchAgent:
         try:
             if action == "web_research":
                 query = params.get("query")
+                max_links = params.get("max_links", 5)
+                region = params.get("region", "wt-wt")
                 if not query: return "Error: Missing 'query' parameter."
-                return web_research(query)
+                return web_research(query, max_links=max_links, region=region)
+
+            elif action == "web_fetch":
+                url_prompt = params.get("url_prompt")
+                if not url_prompt: return "Error: Missing 'url_prompt' parameter."
+                return web_fetch(url_prompt)
 
             elif action == "finish":
                 return "Research completed."

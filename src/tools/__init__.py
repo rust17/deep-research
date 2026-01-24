@@ -26,37 +26,39 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("ddgs").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-def web_research(query: str, max_links: int = 5) -> str:
+def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
     """
     综合研究工具：执行搜索并自动访问前几个链接。
     1. 搜索关键词。
-    2. 提取前 max_links 个 URL。
+    2. 提取多个候选 URL 以应对失效链接。
     3. 并发访问这些 URL 获取全文。
     4. 返回整合后的内容。
     """
-    logger.info(f"Starting web research for: {query}")
+    logger.info(f"Starting web research for: {query} (max_links={max_links}, region={region})")
 
     # 1. Search
     try:
         raw_results = []
         with DDGS() as ddgs:
-            # 获取比 max_links 稍多一点的结果，以防部分链接无效
-            ddgs_gen = ddgs.text(query, region="cn-zh", max_results=max_links + 2)
+            # 增加 max_results 数量（如请求两倍的数量），确保剔除无效链接后仍有足够的 link
+            ddgs_gen = ddgs.text(query, region=region, max_results=max_links * 2)
             if ddgs_gen:
                 raw_results = list(ddgs_gen)
 
         if not raw_results:
             return f"Search for '{query}' returned no results."
 
-        # 提取 URL 和 标题
+        # 提取 URL 和 标题，过滤出前 max_links 个
         targets = []
-        for res in raw_results[:max_links]:
+        for res in raw_results:
+            if len(targets) >= max_links:
+                break
             link = res.get('href')
             title = res.get('title', 'No Title')
             if link:
                 targets.append({"url": link, "title": title})
 
-        logger.info(f"Found {len(targets)} links to visit.")
+        logger.info(f"Found {len(targets)} valid links to visit.")
 
     except Exception as e:
         logger.error(f"Search phase failed: {e}")
