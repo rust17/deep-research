@@ -22,5 +22,5 @@ def write_todos(todos: List[Dict[str, str]]) -> str:
         status = todo.get("status", "pending")
         summary.append(f"- [{status}] {desc}")
 
-    return "Todo list updated successfully:\n" + "\n".join(summary)
+    return "\n".join(summary)
 

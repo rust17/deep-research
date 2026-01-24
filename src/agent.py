@@ -9,7 +9,7 @@ from rich.markdown import Markdown
 
 from src.state_manager import StateManager
 from src.llm_client import LLMClient
-from src.tools import web_research
+from src.tools import web_research, write_todos
 from src.prompts import INIT_PLAN_PROMPT, DECISION_PROMPT, REPORT_PROMPT, SYNTHESIZE_PROMPT, TASK_COMPLETION_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -31,16 +31,25 @@ class ResearchAgent:
         self.console.print(f"Goal: [bold green]{self.user_goal}[/bold green]")
 
         now = datetime.datetime.now()
-        # 1. Generate Plan
+        # 1. Generate Plan via LLM (JSON)
         prompt = INIT_PLAN_PROMPT.format(
             user_goal=self.user_goal,
             current_date=now.strftime("%Y-%m-%d")
         )
-        initial_plan = self.llm.query(prompt)
+        plan_data = self.llm.query_json(prompt)
 
-        # 2. Init Files
-        self.state.init_files(initial_plan)
-        self.console.print(Panel(Markdown(initial_plan), title="[bold]Initial Plan[/bold]", border_style="blue"))
+        # 2. Use tool todo to format plan
+        # Convert list of strings to list of dicts with status
+        todo_list = [
+            {"description": desc}
+            for desc in plan_data.get("todos", [])
+        ]
+
+        plan_markdown = write_todos(todo_list)
+
+        # 3. Init Files
+        self.state.init_files(plan_markdown)
+        self.console.print(Panel(Markdown(plan_markdown), title="[bold]Initial Plan[/bold]", border_style="blue"))
 
     def run(self) -> str:
         """主执行循环"""
@@ -76,7 +85,7 @@ class ResearchAgent:
             # Duplicate Decision Check
             decision_signature = json.dumps(decision, sort_keys=True)
             self.task_decision_history.append(decision_signature)
-            
+
             if self.task_decision_history.count(decision_signature) > 2:
                 self.console.print(f"[bold red]Decision repeated > 2 times. Forcing completion for task:[/bold red] {current_task}")
                 self.state.mark_task_completed(current_task)
@@ -109,7 +118,7 @@ class ResearchAgent:
             # D. Synthesize Findings
             with self.console.status("[bold]Synthesizing findings...[/bold]", spinner="dots"):
                 new_insight = self._synthesize_step()
-            
+
             if new_insight:
                 self.console.print(Panel(Markdown(new_insight), title="New Insight", border_style="green"))
 
