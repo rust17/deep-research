@@ -25,8 +25,8 @@ def web_fetch(prompt: str) -> str:
     # Remove duplicates while preserving order
     unique_urls = []
     for url in urls:
-        # Strip trailing punctuation sometimes caught by regex
-        url = url.rstrip('.,;!?')
+        # Strip trailing punctuation and common delimiters (quotes, parens, etc) sometimes caught by regex
+        url = url.rstrip('.,;!?)]}"\'`>')
         if url not in unique_urls:
             unique_urls.append(url)
 

@@ -20,38 +20,69 @@ INIT_PLAN_PROMPT = """你是一位资深研究专家。
 DECISION_PROMPT = """你是一个自主研究代理。
 当前日期是：{current_date}。
 
-你目前的任务是根据当前的计划和已有的发现，决定下一步的行动。
+你正处于 **Research Loop (信息收集阶段)**。
+你的目标是针对当前任务收集充足的原始数据。这些数据暂时存储在 Buffer 中，尚未经过深度分析。
+
 **当前聚焦任务**：{current_task}
 
 可用工具：
-- web_research(query, max_links, region): **广度搜索**。
+- web_search(query, max_links, region): **广度搜索**。
     - `query`: 搜索关键词。
-    - `max_links`: 读取网页数量，默认 5。
-    - `region`: 搜索地区代码，默认为 "wt-wt" (全球)。如需搜索特定地区，可使用 "cn-zh" (中国), "us-en" (美国) 等。
+    - `max_links`: (可选) 读取数量，默认 3。
+    - `region`:  搜索地区代码，默认为 "wt-wt" (全球)。如需搜索特定地区，可使用 "cn-zh" (中国), "us-en" (美国) 等。
 - web_fetch(url_prompt): **深度挖掘**。如果你已经知道具体的 URL 或需要针对特定网页进行精准解析，请使用此工具。参数是一个包含 URL 的指令描述。
-- finish(): **全部完成**。只有当计划表中的所有任务都已完成（不再有未标记为 pending 的任务）时使用。
+- analyze(): **停止搜索，开始分析**。
+    - 当 Buffer 中的信息（加上已有 Findings）已经足以完成任务时。
+    - 当发现原来的搜索方向有误，需要通过分析来调整计划时。
+    - 当连续搜索多次（Buffer 已积累较多内容）需要通过分析来清理思路时。
 
-当前状态：
+当前上下文状态：
 {context}
 
-请以严格的 JSON 格式返回你的决策，架构如下：
+决策要求：
+1. **检查 Buffer**：仔细阅读 `New Gathered Info (Buffer)`。如果答案已经在里面了，不要重复搜索，直接 `analyze`。
+2. **避免冗余**：不要搜索 `Findings` 或 `Buffer` 中已经存在的具体内容。
+3. **步步为营**：通常 1-3 次搜索/抓取后进行一次 `analyze` 是最佳节奏。
+
+请以严格的 JSON 格式返回决策：
 {{
-    "action": "web_research" | "web_fetch" | "finish",
+    "action": "web_search" | "web_fetch" | "analyze",
     "parameters": {{
-        "query": "字符串 (仅限 web_research)",
-        "max_links": 整数 (仅限 web_research, 可选),
-        "region": "字符串 (仅限 web_research, 可选)",
-        "url_prompt": "字符串 (仅限 web_fetch，需包含目标 URL)",
-        "reason": "选择该操作的原因"
+        "query": "...",
+        "max_links": 5,
+        "region": "...",
+        "url_prompt": "...",
+        "reason": "..."
     }}
 }}
+"""
 
-关键准则：
-1. **专注当前**：你的行动应直接服务于完成 `{current_task}`。
-2. **精准挖掘**：如果在 `findings` 中发现了有价值的链接，优先使用 `web_fetch`。
-3. **避免重复**：检查 `findings.md`，不要重复搜索或访问已知的知识。
+UPDATE_PLAN_PROMPT = """你是一个敏锐的研究策略家。
+当前日期是：{current_date}。
 
-除了 JSON 之外，不要输出任何其他内容。
+基于最新的研究发现，请评估是否需要更新研究计划。
+
+**当前计划**：
+{current_plan}
+
+**最新发现**：
+{latest_findings}
+
+你可以：
+1. **添加新任务**：如果发现了新的关键线索。
+2. **保持不变**：如果当前计划依然合理。
+
+**注意**：你不能修改已经完成（[x]）的任务。
+
+请以 JSON 格式输出更新后的完整待办列表（包含旧任务和新任务）：
+{{
+    "todos": ["步骤1描述", "步骤2描述", ...]
+}}
+
+如果不需要修改，请返回：
+{{
+    "todos": null
+}}
 """
 
 SYNTHESIZE_PROMPT = """你是一位细致的研究分析师。
