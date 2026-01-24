@@ -130,18 +130,13 @@ class ResearchAgent:
         if new_insight:
             self.console.print(Panel(Markdown(new_insight), title="New Insight", border_style="green"))
 
-        # 2. Update Plan
+        # 2. Task Completion
+        self.state.mark_task_completed(current_task)
+        self.console.print(f"[bold green]Task '{current_task}' marked as COMPLETED.[/bold green]")
+
+        # 3. Update Plan
         with self.console.status("[bold]Reviewing plan...[/bold]", spinner="dots"):
             self._update_plan_step()
-
-        # 3. Check Task Completion
-        # 使用最新的 findings (已经包含 new_insight)
-        latest_findings = self.state.read_findings()
-        if self._check_task_completion(current_task, latest_findings):
-            self.state.mark_task_completed(current_task)
-            self.console.print(f"[bold green]Task '{current_task}' marked as COMPLETED.[/bold green]")
-        else:
-            self.console.print(f"[bold yellow]Task '{current_task}' still INCOMPLETE. Continuing...[/bold yellow]")
 
         # 4. Clear Progress Buffer (After synthesis is done)
         self.state.clear_progress()
@@ -176,56 +171,38 @@ class ResearchAgent:
             new_todos = result.get("todos")
 
             if new_todos and isinstance(new_todos, list):
-                # 1. Parse existing
-                existing_lines = current_plan.split('\n')
-                status_map = {}
-                for line in existing_lines:
-                    if "- [" in line:
-                        try:
-                            parts = line.split("] ", 1)
-                            if len(parts) == 2:
-                                status_part = parts[0].split("[")[1] # "x" or " " or "pending"
-                                desc_part = parts[1].strip()
-                                status_map[desc_part] = status_part
-                        except:
-                            continue
+                # The LLM now returns the full state (description + status).
+                # We trust the LLM to preserve "completed" statuses and insert "pending" ones correctly.
+                # Expected format: [{"description": "...", "status": "..."}, ...]
 
-                # 2. Build new list
-                final_todos = []
-                for desc in new_todos:
-                    status = status_map.get(desc, " ") # Default to pending if new
-                    final_todos.append({"description": desc, "status": status})
+                valid_todos = []
+                for item in new_todos:
+                    if isinstance(item, dict) and "description" in item:
+                        # Normalize status slightly
+                        status = item.get("status", "pending")
+                        if status == "x": status = "completed"
+                        if status == " ": status = "pending"
 
-                # 3. Write
-                plan_markdown_raw = write_todos(final_todos)
-                plan_markdown = plan_markdown_raw.replace("Todo list updated successfully:\n", "")
-                self.state.write_plan(plan_markdown)
-                self.console.print("[bold blue]Plan updated.[/bold blue]")
+                        valid_todos.append({
+                            "description": item["description"],
+                            "status": status
+                        })
+                    elif isinstance(item, str):
+                        # Fallback if LLM forgets and returns list of strings (though prompt forbids it)
+                        valid_todos.append({"description": item, "status": "pending"})
+
+                # Write
+                if valid_todos:
+                    plan_markdown_raw = write_todos(valid_todos)
+                    # remove potential wrapper text if any (write_todos returns simple markdown)
+                    self.state.write_plan(plan_markdown_raw)
+                    self.console.print("[bold blue]Plan updated.[/bold blue]")
+                else:
+                    logger.warning("Received empty todos list from LLM, skipping update.")
 
         except Exception as e:
             logger.error(f"Update plan failed: {e}")
 
-
-    def _check_task_completion(self, current_task: str, latest_findings: str) -> bool:
-        """使用 LLM 判断任务是否完成"""
-        if not latest_findings:
-            return False
-
-        now = datetime.datetime.now()
-        prompt = TASK_COMPLETION_PROMPT.format(
-            current_task=current_task,
-            latest_findings=latest_findings,
-            current_date=now.strftime("%Y-%m-%d")
-        )
-        try:
-            result = self.llm.query_json(prompt)
-            is_completed = result.get("is_completed", False)
-            reason = result.get("reason", "No reason")
-            logger.info(f"Task Completion Check: {is_completed} - {reason}")
-            return is_completed
-        except Exception as e:
-            logger.error(f"Task completion check failed: {e}")
-            return False
 
     def _execute_action(self, action: str, params: Dict[str, Any]) -> str:
         """执行具体动作并返回结果字符串"""
