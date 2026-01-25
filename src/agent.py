@@ -36,14 +36,21 @@ class ResearchAgent:
         self.console.print(f"Goal: [bold green]{self.user_goal}[/bold green]")
 
         now = datetime.datetime.now()
-        # 1. Generate Plan via LLM (JSON)
+
+        # 1. Pre-research to ground the plan
+        with self.console.status("[bold]Performing pre-research to ground the plan...[/bold]", spinner="dots"):
+            search_summary = web_search(self.user_goal, max_links=3)
+            self.console.print("[dim]Pre-research completed.[/dim]")
+
+        # 2. Generate Plan via LLM (JSON)
         prompt = INIT_PLAN_PROMPT.format(
             user_goal=self.user_goal,
+            search_summary=search_summary,
             current_date=now.strftime("%Y-%m-%d")
         )
         plan_data = self.llm.query_json(prompt)
 
-        # 2. Use tool todo to format plan
+        # 3. Use tool todo to format plan
         # Convert list of strings to list of dicts with status
         todo_list = [
             {"description": desc}
@@ -52,7 +59,7 @@ class ResearchAgent:
 
         plan_markdown = write_todos(todo_list)
 
-        # 3. Init Files
+        # 4. Init Files
         self.state.init_files(plan_markdown)
         self.console.print(Panel(Markdown(plan_markdown), title="[bold]Initial Plan[/bold]", border_style="blue"))
 
