@@ -11,12 +11,10 @@ from src.state_manager import StateManager
 from src.llm_client import LLMClient
 from src.tools import web_search, write_todos, web_fetch
 from src.prompts import (
-    INIT_PLAN_PROMPT,
     DECISION_PROMPT,
     REPORT_PROMPT,
     SYNTHESIZE_PROMPT,
-    TASK_COMPLETION_PROMPT,
-    UPDATE_PLAN_PROMPT
+    SELECT_TASK_PROMPT
 )
 
 logger = logging.getLogger(__name__)
@@ -29,39 +27,16 @@ class ResearchAgent:
         self.llm = LLMClient()
         self.loop_count = 0
         self.console = Console()
+        self.search_queries = []
 
     def initialize(self):
         """生成初始计划并设置环境"""
         self.console.rule("[bold blue]Initializing Research[/bold blue]")
         self.console.print(f"Goal: [bold green]{self.user_goal}[/bold green]")
 
-        now = datetime.datetime.now()
-
-        # 1. Pre-research to ground the plan
-        with self.console.status("[bold]Performing pre-research to ground the plan...[/bold]", spinner="dots"):
-            search_summary = web_search(self.user_goal, max_links=3)
-            self.console.print("[dim]Pre-research completed.[/dim]")
-
-        # 2. Generate Plan via LLM (JSON)
-        prompt = INIT_PLAN_PROMPT.format(
-            user_goal=self.user_goal,
-            search_summary=search_summary,
-            current_date=now.strftime("%Y-%m-%d")
-        )
-        plan_data = self.llm.query_json(prompt)
-
-        # 3. Use tool todo to format plan
-        # Convert list of strings to list of dicts with status
-        todo_list = [
-            {"description": desc}
-            for desc in plan_data.get("todos", [])
-        ]
-
-        plan_markdown = write_todos(todo_list)
-
-        # 4. Init Files
-        self.state.init_files(plan_markdown)
-        self.console.print(Panel(Markdown(plan_markdown), title="[bold]Initial Plan[/bold]", border_style="blue"))
+        # 4. Init Files (with empty plan)
+        self.state.init_files("")
+        self.console.print("[dim]State initialized.[/dim]")
 
     def run(self) -> str:
         """主执行循环"""
@@ -71,7 +46,9 @@ class ResearchAgent:
             self.console.rule(f"[bold yellow]Loop {self.loop_count + 1}/{self.max_loops}[/bold yellow]")
 
             # 0. Get Current Task
-            current_task = self.state.read_plan()
+            with self.console.status("[bold]Selecting next task...[/bold]", spinner="dots"):
+                current_task = self._select_next_task()
+
             if not current_task:
                 self.console.print("[bold green]No more pending tasks. Research completed![/bold green]")
                 break
@@ -137,16 +114,40 @@ class ResearchAgent:
         if new_insight:
             self.console.print(Panel(Markdown(new_insight), title="New Insight", border_style="green"))
 
-        # 2. Task Completion
-        self.state.mark_task_completed(current_task)
-        self.console.print(f"[bold green]Task '{current_task}' marked as COMPLETED.[/bold green]")
-
-        # 3. Update Plan
-        with self.console.status("[bold]Reviewing plan...[/bold]", spinner="dots"):
-            self._update_plan_step()
-
-        # 4. Clear Progress Buffer (After synthesis is done)
+        # 2. Clear Progress Buffer (After synthesis is done)
         self.state.clear_progress()
+
+    def _select_next_task(self) -> Optional[str]:
+        """LLM Selects the next most important task"""
+        # current_plan = self.state.get_full_plan() # Plan is deprecated
+        findings = self.state.read_findings()
+        now = datetime.datetime.now()
+
+        # Format past queries
+        past_queries_str = "\n".join([f"- {q}" for q in self.search_queries]) if self.search_queries else "None"
+
+        prompt = SELECT_TASK_PROMPT.format(
+            user_goal=self.user_goal,
+            findings=findings,
+            current_date=now.strftime("%Y-%m-%d"),
+            past_search_queries=past_queries_str
+        )
+
+        try:
+            decision = self.llm.query_json(prompt)
+            search_query = decision.get("search_query")
+            reasoning = decision.get("reasoning")
+
+            if reasoning:
+                self.console.print(Panel(f"[bold]Reasoning:[/bold] {reasoning}", title="Task Selection", border_style="cyan"))
+
+            if not search_query or "[FINISH]" in search_query.upper():
+                return None
+
+            return search_query
+        except Exception as e:
+            logger.error(f"Task selection failed: {e}")
+            return None
 
     def _get_decision(self, context: str, current_task: str) -> Dict[str, Any]:
         now = datetime.datetime.now()
@@ -161,55 +162,6 @@ class ResearchAgent:
             logger.error(f"Decision making failed: {e}")
             return {}
 
-    def _update_plan_step(self):
-        """检查并更新计划"""
-        current_plan = self.state.get_full_plan()
-        findings = self.state.read_findings()
-        now = datetime.datetime.now()
-
-        prompt = UPDATE_PLAN_PROMPT.format(
-            current_plan=current_plan,
-            latest_findings=findings,
-            current_date=now.strftime("%Y-%m-%d")
-        )
-
-        try:
-            result = self.llm.query_json(prompt)
-            new_todos = result.get("todos")
-
-            if new_todos and isinstance(new_todos, list):
-                # The LLM now returns the full state (description + status).
-                # We trust the LLM to preserve "completed" statuses and insert "pending" ones correctly.
-                # Expected format: [{"description": "...", "status": "..."}, ...]
-
-                valid_todos = []
-                for item in new_todos:
-                    if isinstance(item, dict) and "description" in item:
-                        # Normalize status slightly
-                        status = item.get("status", "pending")
-                        if status == "x": status = "completed"
-                        if status == " ": status = "pending"
-
-                        valid_todos.append({
-                            "description": item["description"],
-                            "status": status
-                        })
-                    elif isinstance(item, str):
-                        # Fallback if LLM forgets and returns list of strings (though prompt forbids it)
-                        valid_todos.append({"description": item, "status": "pending"})
-
-                # Write
-                if valid_todos:
-                    plan_markdown_raw = write_todos(valid_todos)
-                    # remove potential wrapper text if any (write_todos returns simple markdown)
-                    self.state.write_plan(plan_markdown_raw)
-                    self.console.print("[bold blue]Plan updated.[/bold blue]")
-                else:
-                    logger.warning("Received empty todos list from LLM, skipping update.")
-
-        except Exception as e:
-            logger.error(f"Update plan failed: {e}")
-
 
     def _execute_action(self, action: str, params: Dict[str, Any]) -> str:
         """执行具体动作并返回结果字符串"""
@@ -219,6 +171,10 @@ class ResearchAgent:
                 max_links = params.get("max_links", 3)
                 region = params.get("region", "wt-wt")
                 if not query: return "Error: Missing 'query' parameter."
+
+                # Record the query
+                self.search_queries.append(query)
+
                 return web_search(query, max_links=max_links, region=region)
 
             elif action == "web_fetch":
@@ -243,7 +199,7 @@ class ResearchAgent:
         findings = self.state.read_findings()
 
         # If buffer is empty, skip
-        if not raw_progress or "Research Progress (Cleared)" in raw_progress:
+        if not raw_progress:
             logger.info("No new progress to synthesize.")
             return ""
 
