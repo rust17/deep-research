@@ -62,7 +62,8 @@ def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
             title = future_to_url[future]
             try:
                 content = future.result()
-                visited_content.append(f"=== Source: {title} ===\n{content}\n")
+                optimized = _optimize_content(content, query)
+                visited_content.append(f"=== Source: {title} ===\n{optimized}\n")
             except Exception as exc:
                 visited_content.append(f"=== Source: {title} ===\nFailed to load: {exc}\n")
 
@@ -71,6 +72,89 @@ def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
     final_output += "\n".join(visited_content)
 
     return final_output
+
+def _optimize_content(text: str, query: str, max_chars: int = 3000) -> str:
+    """
+    Optimizes content by:
+    1. Removing lines that are just links or too short/noisy.
+    2. Prioritizing paragraphs that contain query keywords.
+    3. Truncating to a safe limit.
+    """
+    if not text:
+        return ""
+
+    lines = text.split('\n')
+    unique_lines = set()
+    cleaned_lines = []
+    
+    # 1. Basic Cleaning
+    for line in lines:
+        stripped = line.strip()
+        # Remove duplicates
+        if stripped in unique_lines:
+            continue
+        unique_lines.add(stripped)
+        
+        # Skip lines that are just links (common in navs)
+        # Markdown link pattern: [text](url)
+        if stripped.startswith("[") and stripped.endswith(")") and "](" in stripped:
+            if len(stripped) < 100: # Short links are likely nav items
+                continue
+        
+        cleaned_lines.append(line)
+
+    # 2. Relevance Scoring
+    # Simple strategy: Find lines with query terms
+    terms = [t.lower() for t in query.split() if len(t) > 1]
+    if not terms:
+        terms = [query.lower()]
+        
+    scored_blocks = []
+    current_block = []
+    
+    # Group into blocks (paragraphs)
+    for line in cleaned_lines:
+        if not line.strip():
+            if current_block:
+                text_block = "\n".join(current_block)
+                score = sum(1 for t in terms if t in text_block.lower())
+                scored_blocks.append((score, text_block))
+                current_block = []
+        else:
+            current_block.append(line)
+            
+    if current_block:
+        text_block = "\n".join(current_block)
+        score = sum(1 for t in terms if t in text_block.lower())
+        scored_blocks.append((score, text_block))
+
+    # 3. Select Top Blocks
+    # Sort by score desc, then by original position (implicitly via sort stability if needed, but here we prioritize score)
+    # To keep flow, we might want to keep order, but for "Research" finding the needle is more important.
+    scored_blocks.sort(key=lambda x: x[0], reverse=True)
+    
+    selected_text = []
+    current_len = 0
+    
+    # Always keep the top scoring blocks until limit
+    for score, block in scored_blocks:
+        if current_len + len(block) > max_chars:
+            if current_len == 0: # At least one block
+                selected_text.append(block[:max_chars])
+            break
+        
+        selected_text.append(block)
+        current_len += len(block)
+        
+        # If we have enough "good" content (score > 0), stop early to avoid filling with junk
+        # But if scores are 0 (no match), we effectively return random parts (top of list), 
+        # so maybe we should just fallback to original top text if no matches found.
+    
+    if not selected_text:
+        # Fallback: Just return start of text
+        return "\n".join(cleaned_lines)[:max_chars]
+
+    return "\n\n".join(selected_text)
 
 def web_search(query: str, max_links: int = 3, region: str = "wt-wt") -> str:
     """

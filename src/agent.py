@@ -168,7 +168,7 @@ class ResearchAgent:
         try:
             if action == "web_search":
                 query = params.get("query")
-                max_links = params.get("max_links", 3)
+                max_links = params.get("max_links", 10)
                 region = params.get("region", "wt-wt")
                 if not query: return "Error: Missing 'query' parameter."
 
