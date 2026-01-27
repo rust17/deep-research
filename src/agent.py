@@ -9,7 +9,7 @@ from rich.markdown import Markdown
 
 from src.state_manager import StateManager
 from src.llm_client import LLMClient
-from src.tools import web_search, write_todos, web_fetch
+from src.tools import web_search, write_todos
 from src.prompts import (
     DECISION_PROMPT,
     REPORT_PROMPT,
@@ -176,11 +176,6 @@ class ResearchAgent:
                 self.search_queries.append(query)
 
                 return web_search(query, max_links=max_links, region=region)
-
-            elif action == "web_fetch":
-                url_prompt = params.get("url_prompt")
-                if not url_prompt: return "Error: Missing 'url_prompt' parameter."
-                return web_fetch(url_prompt)
 
             # 'analyze' is handled in the loop, 'finish' is removed from decision
 

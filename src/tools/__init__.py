@@ -1,6 +1,5 @@
 import logging
 
-from .web_fetch import web_fetch
 from .search import web_search, web_research
 from .todo import write_todos
 from .ls import list_directory

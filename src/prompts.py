@@ -13,7 +13,6 @@ DECISION_PROMPT = """你是一个自主研究代理。
     - `query`: 搜索关键词。
     - `max_links`: (可选) 读取数量，默认 3。
     - `region`:  搜索地区代码，默认为 "wt-wt" (全球)。如需搜索特定地区，可使用 "cn-zh" (中国), "us-en" (美国) 等。
-- web_fetch(url_prompt): **深度挖掘**。如果你已经知道具体的 URL 或需要针对特定网页进行精准解析，请使用此工具。参数是一个包含 URL 的指令描述。
 - analyze(): **停止搜索，开始分析**。
     - 当 Buffer 中的信息（加上已有 Findings）已经足以完成任务时。
     - 当发现原来的搜索方向有误，需要通过分析来调整计划时。
@@ -29,12 +28,11 @@ DECISION_PROMPT = """你是一个自主研究代理。
 
 请以严格的 JSON 格式返回决策：
 {{
-    "action": "web_search" | "web_fetch" | "analyze",
+    "action": "web_search" | "analyze",
     "parameters": {{
         "query": "...",
         "max_links": 5,
         "region": "...",
-        "url_prompt": "...",
         "reason": "..."
     }}
 }}
