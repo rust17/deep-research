@@ -81,8 +81,9 @@ class StateManager:
                     return
 
     # --- Findings Operations ---
-    def add_finding(self, finding: str):
-        self.append_to_file(self.findings_path, f"\n## New Finding\n{finding}\n")
+    def update_findings(self, findings: str):
+        """覆盖更新 Findings 文件"""
+        self.write_file(self.findings_path, findings)
 
     def read_findings(self) -> str:
         return self.read_file(self.findings_path)

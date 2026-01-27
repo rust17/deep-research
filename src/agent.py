@@ -220,9 +220,9 @@ class ResearchAgent:
             logger.info("Synthesizing completed.")
 
             if "No new insights." in new_insight:
-                 logger.info("No new insights found during synthesis.")
+                logger.info("No new insights found during synthesis.")
             else:
-                self.state.add_finding(new_insight)
+                self.state.update_findings(new_insight)
                 logger.info("Synthesizing Findings updated.")
 
             return new_insight
