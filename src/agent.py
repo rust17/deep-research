@@ -168,14 +168,13 @@ class ResearchAgent:
         try:
             if action == "web_search":
                 query = params.get("query")
-                max_links = params.get("max_links", 10)
                 region = params.get("region", "wt-wt")
                 if not query: return "Error: Missing 'query' parameter."
 
                 # Record the query
                 self.search_queries.append(query)
 
-                return web_search(query, max_links=max_links, region=region)
+                return web_search(query, region=region)
 
             # 'analyze' is handled in the loop, 'finish' is removed from decision
 

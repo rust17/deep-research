@@ -1,14 +1,13 @@
 import logging
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from bs4 import BeautifulSoup
-import html2text
+import trafilatura
 from ddgs import DDGS
 from src.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
+def web_research(query: str, region: str = "wt-wt") -> str:
     """
     Comprehensive research tool: Performs search and automatically visits top links.
     1. Searches for keywords.
@@ -16,25 +15,23 @@ def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
     3. Concurrently visits these URLs to fetch full text.
     4. Returns consolidated content.
     """
-    logger.info(f"Starting web research for: {query} (max_links={max_links}, region={region})")
+    logger.info(f"Starting web research for: {query} (region={region})")
 
     # 1. Search
     try:
         raw_results = []
         with DDGS() as ddgs:
             # Request more results than needed to filter out invalid ones
-            ddgs_gen = ddgs.text(query, region=region, max_results=max_links * 2)
+            ddgs_gen = ddgs.text(query, region=region)
             if ddgs_gen:
                 raw_results = list(ddgs_gen)
 
         if not raw_results:
             return f"Search for '{query}' returned no results."
 
-        # Extract URLs and titles, filtering up to max_links
+        # Extract URLs and titles
         targets = []
         for res in raw_results:
-            if len(targets) >= max_links:
-                break
             link = res.get('href')
             title = res.get('title', 'No Title')
             if link:
@@ -51,7 +48,7 @@ def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
         return "Search returned results but no valid URLs found."
 
     visited_content = []
-    with ThreadPoolExecutor(max_workers=max_links) as executor:
+    with ThreadPoolExecutor(max_workers=len(targets)) as executor:
         future_to_url = {
             executor.submit(_visit_page_internal, t["url"]):
             t["title"]
@@ -62,8 +59,7 @@ def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
             title = future_to_url[future]
             try:
                 content = future.result()
-                optimized = _optimize_content(content, query)
-                visited_content.append(f"=== Source: {title} ===\n{optimized}\n")
+                visited_content.append(f"=== Source: {title} ===\n{content}\n")
             except Exception as exc:
                 visited_content.append(f"=== Source: {title} ===\nFailed to load: {exc}\n")
 
@@ -73,97 +69,14 @@ def web_research(query: str, max_links: int = 5, region: str = "wt-wt") -> str:
 
     return final_output
 
-def _optimize_content(text: str, query: str, max_chars: int = 3000) -> str:
-    """
-    Optimizes content by:
-    1. Removing lines that are just links or too short/noisy.
-    2. Prioritizing paragraphs that contain query keywords.
-    3. Truncating to a safe limit.
-    """
-    if not text:
-        return ""
 
-    lines = text.split('\n')
-    unique_lines = set()
-    cleaned_lines = []
-    
-    # 1. Basic Cleaning
-    for line in lines:
-        stripped = line.strip()
-        # Remove duplicates
-        if stripped in unique_lines:
-            continue
-        unique_lines.add(stripped)
-        
-        # Skip lines that are just links (common in navs)
-        # Markdown link pattern: [text](url)
-        if stripped.startswith("[") and stripped.endswith(")") and "](" in stripped:
-            if len(stripped) < 100: # Short links are likely nav items
-                continue
-        
-        cleaned_lines.append(line)
-
-    # 2. Relevance Scoring
-    # Simple strategy: Find lines with query terms
-    terms = [t.lower() for t in query.split() if len(t) > 1]
-    if not terms:
-        terms = [query.lower()]
-        
-    scored_blocks = []
-    current_block = []
-    
-    # Group into blocks (paragraphs)
-    for line in cleaned_lines:
-        if not line.strip():
-            if current_block:
-                text_block = "\n".join(current_block)
-                score = sum(1 for t in terms if t in text_block.lower())
-                scored_blocks.append((score, text_block))
-                current_block = []
-        else:
-            current_block.append(line)
-            
-    if current_block:
-        text_block = "\n".join(current_block)
-        score = sum(1 for t in terms if t in text_block.lower())
-        scored_blocks.append((score, text_block))
-
-    # 3. Select Top Blocks
-    # Sort by score desc, then by original position (implicitly via sort stability if needed, but here we prioritize score)
-    # To keep flow, we might want to keep order, but for "Research" finding the needle is more important.
-    scored_blocks.sort(key=lambda x: x[0], reverse=True)
-    
-    selected_text = []
-    current_len = 0
-    
-    # Always keep the top scoring blocks until limit
-    for score, block in scored_blocks:
-        if current_len + len(block) > max_chars:
-            if current_len == 0: # At least one block
-                selected_text.append(block[:max_chars])
-            break
-        
-        selected_text.append(block)
-        current_len += len(block)
-        
-        # If we have enough "good" content (score > 0), stop early to avoid filling with junk
-        # But if scores are 0 (no match), we effectively return random parts (top of list), 
-        # so maybe we should just fallback to original top text if no matches found.
-    
-    if not selected_text:
-        # Fallback: Just return start of text
-        return "\n".join(cleaned_lines)[:max_chars]
-
-    return "\n\n".join(selected_text)
-
-def web_search(query: str, max_links: int = 3, region: str = "wt-wt") -> str:
+def web_search(query: str, region: str = "wt-wt") -> str:
     """
     Performs a web search and returns a generated summary with sources.
     Uses web_research to get content, then summarizes it.
 
     Args:
         query (str): The search query.
-        max_links (int): Number of links to visit.
         region (str): Search region.
 
     Returns:
@@ -173,7 +86,7 @@ def web_search(query: str, max_links: int = 3, region: str = "wt-wt") -> str:
         logger.info(f"web_search: Searching for '{query}'...")
 
         # Use web_research to get raw content (search + fetch)
-        raw_results = web_research(query, max_links=max_links, region=region)
+        raw_results = web_research(query, region=region)
 
         if "Search returned no results" in raw_results or "Search failed" in raw_results:
             return raw_results
@@ -203,7 +116,7 @@ def web_search(query: str, max_links: int = 3, region: str = "wt-wt") -> str:
 
 def _visit_page_internal(url: str, timeout: int = 15) -> str:
     """
-    Internal function to visit a single page and extract text.
+    Internal function to visit a single page and extract text using trafilatura.
     """
     try:
         headers = {
@@ -214,30 +127,29 @@ def _visit_page_internal(url: str, timeout: int = 15) -> str:
 
         # Fix encoding issues by letting requests guess based on content
         response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, 'html.parser')
+        downloaded = response.text
+        # trafilatura.fetch_url is a robust way to download the page
+        if downloaded is None:
+            # Fallback or error
+            return f"URL: {url}\n\nError: Failed to fetch content."
 
-        # Clean up
-        for element in soup(["script", "style", "nav", "footer", "header", "iframe", "noscript", "svg"]):
-            element.decompose()
+        # Extract content
+        # include_links=True to keep links
+        text = trafilatura.extract(downloaded, include_links=True, include_comments=False,
+                                 include_tables=True, no_fallback=False)
 
-        # Convert to Markdown
-        h = html2text.HTML2Text()
-        h.ignore_links = False
-        h.ignore_images = True
-        h.body_width = 0
-        h.protect_links = True
-
-        text = h.handle(str(soup))
+        if text is None:
+            return f"URL: {url}\n\nError: Failed to extract text content."
 
         # Add Source URL marker
         text = f"URL: {url}\n\n{text}"
 
-        # Truncate
+        # Truncate if extremely long
         if len(text) > 15000:
             text = text[:15000] + "\n\n[...Content Truncated...]"
 
         return text
 
     except Exception as e:
-        # logger.warning(f"Failed to visit {url}: {e}") # Reduce noise
+        logger.error(f"Error visiting {url}: {e}")
         raise e

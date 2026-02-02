@@ -9,9 +9,8 @@ DECISION_PROMPT = """你是一个自主研究代理。
 **当前聚焦任务**：{current_task}
 
 可用工具：
-- web_search(query, max_links, region): **广度搜索**。
+- web_search(query, region): **广度搜索**。
     - `query`: 搜索关键词。
-    - `max_links`: (可选) 读取数量，默认 3。
     - `region`:  搜索地区代码，默认为 "wt-wt" (全球)。如需搜索特定地区，可使用 "cn-zh" (中国), "us-en" (美国) 等。
 - analyze(): **停止搜索，开始分析**。
     - 当 Buffer 中的信息（加上已有 Findings）已经足以完成任务时。
@@ -31,7 +30,6 @@ DECISION_PROMPT = """你是一个自主研究代理。
     "action": "web_search" | "analyze",
     "parameters": {{
         "query": "...",
-        "max_links": 5,
         "region": "...",
         "reason": "..."
     }}
