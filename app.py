@@ -70,6 +70,7 @@ if start_btn and goal:
             def write(self, text):
                 if text.strip():
                     log_buffer.append(text)
+                    log_placeholder.code("".join(log_buffer[-200:]), language=None)
 
             def flush(self):
                 pass
