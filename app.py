@@ -22,7 +22,15 @@ with st.sidebar:
     if api_key:
         os.environ["OPENAI_API_KEY"] = api_key
 
-    max_loops = st.slider("最大循环次数", min_value=1, max_value=20, value=5)
+    base_url = st.text_input("Base URL", value=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"), help="API 基础地址，例如 https://api.deepseek.com/v1")
+    if base_url:
+        os.environ["OPENAI_BASE_URL"] = base_url
+
+    model_name = st.text_input("Model Name", value=os.getenv("MODEL_NAME", "gpt-4o"), help="模型名称，例如 deepseek-chat")
+    if model_name:
+        os.environ["MODEL_NAME"] = model_name
+
+    max_loops = st.slider("最大循环次数", min_value=1, max_value=20, value=10)
 
     st.info("该工具会自动搜索网络信息并整合为深度调研报告。")
 
