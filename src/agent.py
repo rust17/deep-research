@@ -31,7 +31,7 @@ class ResearchAgent:
         self.console.print(f"Goal: [bold green]{self.user_goal}[/bold green]")
 
         # 4. Init Files (with empty plan)
-        self.state.init_files("")
+        self.state.init_files()
         self.console.print("[dim]State initialized.[/dim]")
 
     def run(self) -> str:

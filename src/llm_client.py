@@ -36,8 +36,6 @@ class LLMClient:
     def query_json(self, prompt: str) -> Dict[str, Any]:
         """强制 JSON 输出查询"""
         try:
-            # 注意：某些模型(如DeepSeek)在 enable_thinking=True 时不支持 json_object 模式
-            # 因此这里移除 response_format，改为在代码层面解析
             response = self.client.chat.completions.create(
                 model=self.model, messages=[{"role": "user", "content": prompt}], temperature=0.5
             )

@@ -16,7 +16,7 @@ console = Console()
 def main():
     parser = argparse.ArgumentParser(description="Deep Research Agent CLI")
     parser.add_argument("goal", nargs="?", help="The research goal/question")
-    parser.add_argument("--max-loops", type=int, default=20, help="Max research loops")
+    parser.add_argument("--max-loops", type=int, default=10, help="Max research loops")
 
     args = parser.parse_args()
 
