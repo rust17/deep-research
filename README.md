@@ -1,7 +1,6 @@
 ---
 deployspec:
   entry_file: src/deep_research/gui.py
-license: MIT
 ---
 # Deep Research Agent
 
