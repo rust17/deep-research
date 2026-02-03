@@ -1,9 +1,16 @@
 import streamlit as st
 import os
-import time
-from .agent import ResearchAgent
-from .state_manager import StateManager
+import sys
 from pathlib import Path
+
+# Add project root to sys.path
+# Assuming this file is at src/deep_research/gui.py
+# We want to add the directory containing 'src' (which is the project root)
+project_root = Path(__file__).resolve().parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from src.deep_research.agent import ResearchAgent
 
 # 页面配置
 st.set_page_config(page_title="Deep Research Agent", page_icon="🔍", layout="wide")
