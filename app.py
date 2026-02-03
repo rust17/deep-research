@@ -59,20 +59,33 @@ if start_btn and goal:
         st.session_state.running = True
         st.session_state.report = None
 
-        # 容器用于显示动态进展
-        progress_container = st.container()
-        findings_container = st.container()
+        # 模拟控制台输出区域
+        st.subheader("调研日志")
+        log_placeholder = st.empty()
+        log_buffer = []
+
+        class StreamlitSink:
+            def write(self, text):
+                if text.strip():  # 避免过多的空行刷新
+                    log_buffer.append(text)
+                    # 实时刷新日志区域，保留最新的 200 行以防页面卡顿
+                    log_placeholder.code("".join(log_buffer[-200:]), language=None)
+
+            def flush(self):
+                pass
 
         try:
+            from rich.console import Console
+
             agent = ResearchAgent(user_goal=goal, max_loops=max_loops)
 
-            # 使用占位符实现动态刷新
-            with st.spinner("调研中..."):
-                # 注意：为了让 Streamlit 能实时展示内容，这里需要修改 agent 逻辑或者在循环中读取文件
-                # 简单方案：在一个线程中运行 agent，在主线程轮询文件
-                # 创空间方案：直接运行并定期刷新页面显示
+            # 重定向 agent 的 console 输出到 Streamlit 界面
+            # force_terminal=False 确保输出纯文本（无 ANSI 颜色代码）
+            # width=80 适配一般的显示宽度
+            agent.console = Console(file=StreamlitSink(), force_terminal=False, width=100)
 
-                # 运行 agent (阻塞直到完成)
+            # 使用 spinner 提示正在运行，但不占用主输出区
+            with st.spinner("Agent 正在思考和调研中..."):
                 final_report = agent.run()
                 st.session_state.report = final_report
 
@@ -95,20 +108,3 @@ if st.session_state.report:
         file_name="research_report.md",
         mime="text/markdown"
     )
-
-# 实时进展展示区域 (如果正在运行或已完成但想看中间过程)
-if goal:
-    st.divider()
-    c1, c2 = st.columns(2)
-
-    state = StateManager()
-
-    with c1:
-        st.subheader("实时进度 (Progress)")
-        progress_text = state.read_progress()
-        st.text_area("Progress Content", progress_text, height=300, label_visibility="collapsed")
-
-    with c2:
-        st.subheader("中间发现 (Findings)")
-        findings_text = state.read_findings()
-        st.markdown(findings_text)
