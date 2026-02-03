@@ -1,7 +1,10 @@
 import os
 from pathlib import Path
 
-def replace(file_path: str, old_string: str, new_string: str, expected_replacements: int = 1) -> str:
+
+def replace(
+    file_path: str, old_string: str, new_string: str, expected_replacements: int = 1
+) -> str:
     """
     Replaces text within a file.
 

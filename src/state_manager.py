@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
+
 class StateManager:
     def __init__(self, tasks_dir: str = "tasks_log"):
         self.tasks_dir = Path(tasks_dir)
@@ -51,9 +52,9 @@ class StateManager:
         content = self.read_file(self.plan_path)
         if not content:
             return None
-        
+
         # 查找第一个未完成的任务，支持 "- [ ]" 和 "- [pending]"
-        match = re.search(r'- \[(?: |pending)\] (.*)', content)
+        match = re.search(r"- \[(?: |pending)\] (.*)", content)
         if match:
             return match.group(1).strip()
         return None
@@ -62,10 +63,10 @@ class StateManager:
         """将指定任务标记为已完成"""
         if not task_text:
             return
-            
+
         content = self.read_file(self.plan_path)
-        lines = content.split('\n')
-        
+        lines = content.split("\n")
+
         for i, line in enumerate(lines):
             # 检查行中是否包含任务文本
             if task_text in line:

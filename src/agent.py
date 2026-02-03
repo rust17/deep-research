@@ -9,15 +9,11 @@ from rich.markdown import Markdown
 
 from src.state_manager import StateManager
 from src.llm_client import LLMClient
-from src.tools import web_search, write_todos
-from src.prompts import (
-    DECISION_PROMPT,
-    REPORT_PROMPT,
-    SYNTHESIZE_PROMPT,
-    SELECT_TASK_PROMPT
-)
+from src.tools import web_search
+from src.prompts import DECISION_PROMPT, REPORT_PROMPT, SYNTHESIZE_PROMPT, SELECT_TASK_PROMPT
 
 logger = logging.getLogger(__name__)
+
 
 class ResearchAgent:
     def __init__(self, user_goal: str, max_loops: int = 10):
@@ -43,68 +39,83 @@ class ResearchAgent:
         self.initialize()
 
         while self.loop_count < self.max_loops:
-            self.console.rule(f"[bold yellow]Loop {self.loop_count + 1}/{self.max_loops}[/bold yellow]")
+            self.console.rule(
+                f"[bold yellow]Loop {self.loop_count + 1}/{self.max_loops}[/bold yellow]"
+            )
 
             # 0. Get Current Task
             with self.console.status("[bold]Selecting next task...[/bold]", spinner="dots"):
                 current_task = self._select_next_task()
 
             if not current_task:
-                self.console.print("[bold green]No more pending tasks. Research completed![/bold green]")
+                self.console.print(
+                    "[bold green]No more pending tasks. Research completed![/bold green]"
+                )
                 break
 
             self.console.print(f"[bold cyan]Current Task:[/bold cyan] {current_task}")
 
             # --- Phase 1: Research Loop (Gathering) ---
-            self._research_loop(current_task)
+            self._research(current_task)
 
             # --- Phase 2: Synthesize Stage (Thinking) ---
-            self._synthesize_stage(current_task)
+            self._synthesize(current_task)
 
             self.loop_count += 1
 
         # 3. Generate Report
         return self._generate_report()
 
-    def _research_loop(self, current_task: str):
+    def _research(self, current_task: str):
         """循环收集信息，直到 Agent 决定开始分析"""
         research_steps = 0
         max_steps = 5  # 防止无限搜索
 
         while research_steps < max_steps:
-            progress = self.state.read_progress() # Current buffer
+            progress = self.state.read_progress()  # Current buffer
 
             context = f"# Research Goal\n{self.user_goal}\n\n# Gathered Info (Buffer)\n{progress}"
 
-            decision = self._get_decision(context, current_task)
+            with self.console.status(f"[bold]Deciding...", spinner="dots"):
+                decision = self._get_decision(context, current_task)
+
             if not decision:
-                self.console.print("[bold red]Failed to get valid decision. Breaking research loop.[/bold red]")
+                self.console.print(
+                    "[bold red]Failed to get valid decision. Breaking research loop.[/bold red]"
+                )
                 break
 
             action = decision.get("action")
             params = decision.get("parameters", {})
             reason = params.get("reason", "No reason provided")
 
-            self.console.print(Panel(f"[bold]Action:[/bold] {action.upper()}\n[bold]Reason:[/bold] {reason}", title="Decision", border_style="magenta"))
+            self.console.print(
+                Panel(
+                    f"[bold]Action:[/bold] {action.upper()}\n[bold]Reason:[/bold] {reason}",
+                    title="Decision",
+                    border_style="magenta",
+                )
+            )
 
             if action == "analyze":
-                self.console.print("[bold green]Agent decided to analyze collected info.[/bold green]")
+                self.console.print(
+                    "[bold green]Agent decided to analyze collected info.[/bold green]"
+                )
                 break
 
             # Execute & Buffer
             with self.console.status(f"[bold]Executing {action}...[/bold]", spinner="dots"):
                 result = self._execute_action(action, params)
 
-            self.state.add_progress(
-                action=f"{action} (Params: {str(params)})",
-                result=result
-            )
+            self.state.add_progress(action=f"{action} (Params: {str(params)})", result=result)
             research_steps += 1
 
         if research_steps >= max_steps:
-            self.console.print("[bold yellow]Max research steps reached. Forcing synthesis.[/bold yellow]")
+            self.console.print(
+                "[bold yellow]Max research steps reached. Forcing synthesis.[/bold yellow]"
+            )
 
-    def _synthesize_stage(self, current_task: str):
+    def _synthesize(self, current_task: str):
         """处理信息，更新发现，调整计划，检查完成"""
 
         # 1. Synthesize Findings
@@ -112,25 +123,29 @@ class ResearchAgent:
             new_insight = self._synthesize_step()
 
         if new_insight:
-            self.console.print(Panel(Markdown(new_insight), title="New Insight", border_style="green"))
+            self.console.print(
+                Panel(Markdown(new_insight), title="New Insight", border_style="green")
+            )
 
         # 2. Clear Progress Buffer (After synthesis is done)
         self.state.clear_progress()
 
     def _select_next_task(self) -> Optional[str]:
         """LLM Selects the next most important task"""
-        # current_plan = self.state.get_full_plan() # Plan is deprecated
+
         findings = self.state.read_findings()
         now = datetime.datetime.now()
 
         # Format past queries
-        past_queries_str = "\n".join([f"- {q}" for q in self.search_queries]) if self.search_queries else "None"
+        past_queries_str = (
+            "\n".join([f"- {q}" for q in self.search_queries]) if self.search_queries else "None"
+        )
 
         prompt = SELECT_TASK_PROMPT.format(
             user_goal=self.user_goal,
             findings=findings,
             current_date=now.strftime("%Y-%m-%d"),
-            past_search_queries=past_queries_str
+            past_search_queries=past_queries_str,
         )
 
         try:
@@ -139,7 +154,13 @@ class ResearchAgent:
             reasoning = decision.get("reasoning")
 
             if reasoning:
-                self.console.print(Panel(f"[bold]Reasoning:[/bold] {reasoning}", title="Task Selection", border_style="cyan"))
+                self.console.print(
+                    Panel(
+                        f"[bold]Reasoning:[/bold] {reasoning}",
+                        title="Task Selection",
+                        border_style="cyan",
+                    )
+                )
 
             if not search_query or "[FINISH]" in search_query.upper():
                 return None
@@ -162,21 +183,18 @@ class ResearchAgent:
             logger.error(f"Decision making failed: {e}")
             return {}
 
-
     def _execute_action(self, action: str, params: Dict[str, Any]) -> str:
         """执行具体动作并返回结果字符串"""
         try:
             if action == "web_search":
                 query = params.get("query")
-                region = params.get("region", "wt-wt")
-                if not query: return "Error: Missing 'query' parameter."
 
-                # Record the query
+                if not query:
+                    return "Error: Missing 'query' parameter."
+
                 self.search_queries.append(query)
 
-                return web_search(query, region=region)
-
-            # 'analyze' is handled in the loop, 'finish' is removed from decision
+                return web_search(query, region=params.get("region", "wt-wt"))
 
             else:
                 return f"Error: Unknown action '{action}'"
@@ -205,19 +223,16 @@ class ResearchAgent:
             user_goal=self.user_goal,
             existing_findings=findings,
             new_progress=progress,
-            current_date=datetime.datetime.now().strftime("%Y-%m-%d")
+            current_date=datetime.datetime.now().strftime("%Y-%m-%d"),
         )
 
         try:
-            logger.info("Synthesizing start...")
             new_insight = self.llm.query(prompt)
-            logger.info("Synthesizing completed.")
 
             if "No new insights." in new_insight:
                 logger.info("No new insights found during synthesis.")
             else:
                 self.state.update_findings(new_insight)
-                logger.info("Synthesizing Findings updated.")
 
             return new_insight
         except Exception as e:
@@ -230,7 +245,7 @@ class ResearchAgent:
         prompt = REPORT_PROMPT.format(
             user_goal=self.user_goal,
             findings=findings,
-            current_date=datetime.datetime.now().strftime("%Y-%m-%d")
+            current_date=datetime.datetime.now().strftime("%Y-%m-%d"),
         )
         report = self.llm.query(prompt)
 

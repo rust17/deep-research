@@ -7,6 +7,7 @@ from src.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
+
 def web_research(query: str, region: str = "wt-wt") -> str:
     """
     Comprehensive research tool: Performs search and automatically visits top links.
@@ -32,8 +33,8 @@ def web_research(query: str, region: str = "wt-wt") -> str:
         # Extract URLs and titles
         targets = []
         for res in raw_results:
-            link = res.get('href')
-            title = res.get('title', 'No Title')
+            link = res.get("href")
+            title = res.get("title", "No Title")
             if link:
                 targets.append({"url": link, "title": title})
 
@@ -50,9 +51,7 @@ def web_research(query: str, region: str = "wt-wt") -> str:
     visited_content = []
     with ThreadPoolExecutor(max_workers=len(targets)) as executor:
         future_to_url = {
-            executor.submit(_visit_page_internal, t["url"]):
-            t["title"]
-            for t in targets
+            executor.submit(_visit_page_internal, t["url"]): t["title"] for t in targets
         }
 
         for future in as_completed(future_to_url):
@@ -114,6 +113,7 @@ def web_search(query: str, region: str = "wt-wt") -> str:
         logger.error(f"web_search failed: {e}")
         return f"Error performing web search: {str(e)}"
 
+
 def _visit_page_internal(url: str, timeout: int = 15) -> str:
     """
     Internal function to visit a single page and extract text using trafilatura.
@@ -135,8 +135,13 @@ def _visit_page_internal(url: str, timeout: int = 15) -> str:
 
         # Extract content
         # include_links=True to keep links
-        text = trafilatura.extract(downloaded, include_links=True, include_comments=False,
-                                 include_tables=True, no_fallback=False)
+        text = trafilatura.extract(
+            downloaded,
+            include_links=True,
+            include_comments=False,
+            include_tables=True,
+            no_fallback=False,
+        )
 
         if text is None:
             return f"URL: {url}\n\nError: Failed to extract text content."

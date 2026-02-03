@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+
 def write_file(file_path: str, content: str) -> str:
     """
     Writes content to a specified file.
@@ -19,7 +20,11 @@ def write_file(file_path: str, content: str) -> str:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         mode = "w" if path.exists() else "x"
-        status_msg = "Successfully overwrote file" if path.exists() else "Successfully created and wrote to new file"
+        status_msg = (
+            "Successfully overwrote file"
+            if path.exists()
+            else "Successfully created and wrote to new file"
+        )
 
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)

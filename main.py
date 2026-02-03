@@ -12,6 +12,7 @@ load_dotenv()
 
 console = Console()
 
+
 def main():
     parser = argparse.ArgumentParser(description="Deep Research Agent CLI")
     parser.add_argument("goal", nargs="?", help="The research goal/question")
@@ -21,7 +22,9 @@ def main():
 
     # 检查 API Key
     if not os.getenv("OPENAI_API_KEY"):
-        console.print("[bold red]Error:[/bold red] OPENAI_API_KEY is not set in environment or .env file.")
+        console.print(
+            "[bold red]Error:[/bold red] OPENAI_API_KEY is not set in environment or .env file."
+        )
         console.print("Please create a .env file with OPENAI_API_KEY=sk-...")
         sys.exit(1)
 
@@ -43,13 +46,20 @@ def main():
         console.print()
         console.rule("[bold green]Research Completed[/bold green]")
         console.print(f"✅ Report saved to [bold]tasks_log/research_report.md[/bold].\n")
-        
-        console.print(Panel(Markdown(final_report), title="[bold]Final Report Preview[/bold]", border_style="green"))
-        
+
+        console.print(
+            Panel(
+                Markdown(final_report),
+                title="[bold]Final Report Preview[/bold]",
+                border_style="green",
+            )
+        )
+
     except KeyboardInterrupt:
         console.print("\n[bold red]Research interrupted by user.[/bold red]")
     except Exception as e:
         console.print(f"\n[bold red]❌ An error occurred:[/bold red] {e}")
+
 
 if __name__ == "__main__":
     main()

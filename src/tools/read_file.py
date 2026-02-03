@@ -3,7 +3,10 @@ import mimetypes
 from pathlib import Path
 from typing import Optional, Union, Dict
 
-def read_file(path: str, offset: Optional[int] = None, limit: Optional[int] = None) -> Union[str, Dict]:
+
+def read_file(
+    path: str, offset: Optional[int] = None, limit: Optional[int] = None
+) -> Union[str, Dict]:
     """
     Reads and returns the content of a specified file. Handles text and specific binary formats.
 
@@ -27,38 +30,43 @@ def read_file(path: str, offset: Optional[int] = None, limit: Optional[int] = No
 
         # Binary types to support
         supported_binary_mimes = [
-            'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp',
-            'audio/mpeg', 'audio/wav', 'audio/x-aiff', 'audio/aac', 'audio/ogg', 'audio/flac',
-            'application/pdf'
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "image/svg+xml",
+            "image/bmp",
+            "audio/mpeg",
+            "audio/wav",
+            "audio/x-aiff",
+            "audio/aac",
+            "audio/ogg",
+            "audio/flac",
+            "application/pdf",
         ]
 
         is_binary = False
-        if mime_type and any(mime_type.startswith(t.split('/')[0]) for t in supported_binary_mimes):
-             # Simplified check, strictly checking against list for safety or prefixes
-             if mime_type in supported_binary_mimes:
-                 is_binary = True
+        if mime_type and any(mime_type.startswith(t.split("/")[0]) for t in supported_binary_mimes):
+            # Simplified check, strictly checking against list for safety or prefixes
+            if mime_type in supported_binary_mimes:
+                is_binary = True
 
         # Fallback: check if it looks like binary by reading a chunk
         if not is_binary:
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, "r", encoding="utf-8") as f:
                     f.read(1024)
             except UnicodeDecodeError:
                 is_binary = True
                 # Set a generic binary mime type if not guessed
                 if not mime_type:
-                    mime_type = 'application/octet-stream'
+                    mime_type = "application/octet-stream"
 
         if is_binary:
             if mime_type in supported_binary_mimes:
                 with open(file_path, "rb") as f:
-                    data = base64.b64encode(f.read()).decode('utf-8')
-                return {
-                    "inlineData": {
-                        "mimeType": mime_type,
-                        "data": data
-                    }
-                }
+                    data = base64.b64encode(f.read()).decode("utf-8")
+                return {"inlineData": {"mimeType": mime_type, "data": data}}
             else:
                 return f"Cannot display content of binary file: {path}"
 
@@ -67,7 +75,7 @@ def read_file(path: str, offset: Optional[int] = None, limit: Optional[int] = No
             with open(file_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
         except Exception as e:
-             return f"Error reading text file: {str(e)}"
+            return f"Error reading text file: {str(e)}"
 
         total_lines = len(lines)
 
@@ -82,7 +90,7 @@ def read_file(path: str, offset: Optional[int] = None, limit: Optional[int] = No
         content = "".join(truncated_lines)
 
         if total_lines > limit or start_index > 0:
-            header = f"[File content truncated: showing lines {start_index+1}-{min(end_index, total_lines)} of {total_lines} total lines...]\n"
+            header = f"[File content truncated: showing lines {start_index + 1}-{min(end_index, total_lines)} of {total_lines} total lines...]\n"
             return header + content
 
         return content

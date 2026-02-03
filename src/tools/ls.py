@@ -3,7 +3,10 @@ import fnmatch
 from pathlib import Path
 from typing import List, Optional
 
-def list_directory(path: str, ignore: Optional[List[str]] = None, respect_git_ignore: bool = True) -> str:
+
+def list_directory(
+    path: str, ignore: Optional[List[str]] = None, respect_git_ignore: bool = True
+) -> str:
     """
     Lists the names of files and subdirectories directly within a specified directory path.
     Can optionally ignore entries matching provided glob patterns.

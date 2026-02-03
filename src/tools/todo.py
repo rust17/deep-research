@@ -1,5 +1,6 @@
 from typing import List, Dict
 
+
 def write_todos(todos: List[Dict[str, str]]) -> str:
     """
     Creates and manages a list of subtasks for complex user requests.
@@ -23,4 +24,3 @@ def write_todos(todos: List[Dict[str, str]]) -> str:
         summary.append(f"- [{status}] {desc}")
 
     return "\n".join(summary)
-

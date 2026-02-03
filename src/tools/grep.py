@@ -4,7 +4,10 @@ from pathlib import Path
 from typing import Optional
 import fnmatch
 
-def search_file_content(pattern: str, path: Optional[str] = None, include: Optional[str] = None) -> str:
+
+def search_file_content(
+    pattern: str, path: Optional[str] = None, include: Optional[str] = None
+) -> str:
     """
     Searches for a regular expression pattern within the content of files.
 
@@ -27,7 +30,7 @@ def search_file_content(pattern: str, path: Optional[str] = None, include: Optio
         total_matches = 0
 
         # Ignored directories
-        ignored_dirs = {'.git', 'node_modules', '__pycache__', '.venv', 'venv', '.idea', '.vscode'}
+        ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode"}
 
         for root, dirs, files in os.walk(search_root):
             # Modify dirs in-place to skip ignored directories
@@ -53,7 +56,7 @@ def search_file_content(pattern: str, path: Optional[str] = None, include: Optio
                     if regex.search(line):
                         # Strip newline for display
                         clean_line = line.rstrip()
-                        file_matches.append(f"L{i+1}: {clean_line}")
+                        file_matches.append(f"L{i + 1}: {clean_line}")
 
                 if file_matches:
                     total_matches += len(file_matches)
@@ -63,11 +66,11 @@ def search_file_content(pattern: str, path: Optional[str] = None, include: Optio
                     matches_output.extend(file_matches)
 
         if total_matches == 0:
-            return f"No matches found for pattern \"{pattern}\"."
+            return f'No matches found for pattern "{pattern}".'
 
-        header = f"Found {total_matches} matches for pattern \"{pattern}\" in path \"{search_root}\""
+        header = f'Found {total_matches} matches for pattern "{pattern}" in path "{search_root}"'
         if include:
-            header += f" (filter: \"{include}\")"
+            header += f' (filter: "{include}")'
         header += ":"
 
         return header + "\n" + "\n".join(matches_output) + "\n---"
