@@ -1,6 +1,9 @@
 import logging
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
+
 import trafilatura
 from ddgs import DDGS
 from src.llm_client import LLMClient
@@ -8,86 +11,167 @@ from src.llm_client import LLMClient
 logger = logging.getLogger(__name__)
 
 
-def web_research(query: str, region: str = "wt-wt") -> str:
+@dataclass
+class SearchResult:
+    """Represents a single search result item."""
+
+    title: str
+    url: str
+    snippet: Optional[str] = None
+
+
+@dataclass
+class CrawledPage:
+    """Represents the content extracted from a visited page."""
+
+    source: SearchResult
+    content: str
+    success: bool
+    error: Optional[str] = None
+
+    def to_string(self) -> str:
+        """Formats the page content for display/LLM consumption."""
+        header = f"=== Source: {self.source.title} ==="
+        if not self.success:
+            return f"{header}\nURL: {self.source.url}\nFailed to load: {self.error}\n"
+
+        return f"{header}\nURL: {self.source.url}\n\n{self.content}\n"
+
+
+class WebResearcher:
     """
-    Comprehensive research tool: Performs search and automatically visits top links.
-    1. Searches for keywords.
-    2. Extracts multiple candidate URLs.
-    3. Concurrently visits these URLs to fetch full text.
-    4. Returns consolidated content.
+    Encapsulates web research logic, session management, and concurrency.
     """
-    logger.info(f"Starting web research for: {query} (region={region})")
 
-    # 1. Search
-    try:
-        raw_results = []
-        with DDGS() as ddgs:
-            # Request more results than needed to filter out invalid ones
-            ddgs_gen = ddgs.text(query, region=region)
-            if ddgs_gen:
-                raw_results = list(ddgs_gen)
+    def __init__(self, max_workers: int = 5, timeout: int = 15, region: str = "wt-wt"):
+        self.max_workers = max_workers
+        self.timeout = timeout
+        self.region = region
+        self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+        )
+        self._executor: Optional[ThreadPoolExecutor] = None
 
-        if not raw_results:
-            return f"Search for '{query}' returned no results."
+    def __enter__(self):
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        return self
 
-        # Extract URLs and titles
-        targets = []
-        for res in raw_results:
-            link = res.get("href")
-            title = res.get("title", "No Title")
-            if link:
-                targets.append({"url": link, "title": title})
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._executor:
+            self._executor.shutdown(wait=True)
+        self.session.close()
 
-        logger.info(f"Found {len(targets)} valid links to visit.")
+    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+        """Performs the search using DuckDuckGo."""
+        results = []
+        try:
+            with DDGS() as ddgs:
+                # Fetching a few more to filter invalid ones, though here we trust DDGS mostly
+                ddgs_gen = ddgs.text(query, region=self.region, max_results=max_results)
+                if ddgs_gen:
+                    for res in ddgs_gen:
+                        link = res.get("href")
+                        title = res.get("title", "No Title")
+                        body = res.get("body", "")
+                        if link:
+                            results.append(SearchResult(title=title, url=link, snippet=body))
 
-    except Exception as e:
-        logger.error(f"Search phase failed: {e}")
-        return f"Search failed: {str(e)}"
+            logger.info(f"Found {len(results)} valid links for query: {query}")
+            return results
+        except Exception as e:
+            logger.error(f"Search phase failed: {e}")
+            return []
 
-    # 2. Batch Visit
-    if not targets:
-        return "Search returned results but no valid URLs found."
+    def _fetch_single_page(self, result: SearchResult) -> CrawledPage:
+        """Internal method to fetch and extract content from a single URL."""
+        try:
+            response = self.session.get(result.url, timeout=self.timeout)
+            response.raise_for_status()
 
-    visited_content = []
-    with ThreadPoolExecutor(max_workers=len(targets)) as executor:
-        future_to_url = {
-            executor.submit(_visit_page_internal, t["url"]): t["title"] for t in targets
-        }
+            # Handle encoding
+            if response.encoding is None:
+                response.encoding = response.apparent_encoding
 
-        for future in as_completed(future_to_url):
-            title = future_to_url[future]
-            try:
-                content = future.result()
-                visited_content.append(f"=== Source: {title} ===\n{content}\n")
-            except Exception as exc:
-                visited_content.append(f"=== Source: {title} ===\nFailed to load: {exc}\n")
+            # Extract text
+            text = trafilatura.extract(
+                response.text,
+                include_links=True,
+                include_comments=False,
+                include_tables=True,
+                no_fallback=False,
+            )
 
-    # 3. Combine Output
-    final_output = f"## Research Results for: {query}\n\n"
-    final_output += "\n".join(visited_content)
+            if not text:
+                return CrawledPage(
+                    source=result, content="", success=False, error="Failed to extract text content"
+                )
 
-    return final_output
+            # Simple truncation strategy
+            if len(text) > 15000:
+                text = text[:15000] + "\n\n[...Content Truncated...]"
+
+            return CrawledPage(source=result, content=text, success=True)
+
+        except Exception as e:
+            logger.warning(f"Error visiting {result.url}: {e}")
+            return CrawledPage(source=result, content="", success=False, error=str(e))
+
+    def run(self, query: str) -> List[CrawledPage]:
+        """
+        Orchestrates the full research process: Search -> Batch Visit.
+        """
+        logger.info(f"Starting web research for: {query}")
+
+        # 1. Search
+        search_results = self.search(query)
+        if not search_results:
+            return []
+
+        # 2. Batch Visit
+        crawled_pages = []
+        # Ensure executor is available (if not used as context manager, create temp one)
+        if self._executor:
+            futures = {
+                self._executor.submit(self._fetch_single_page, res): res for res in search_results
+            }
+            for future in as_completed(futures):
+                crawled_pages.append(future.result())
+        else:
+            # Fallback if not used in 'with' statement
+            with ThreadPoolExecutor(max_workers=self.max_workers) as temp_executor:
+                futures = {
+                    temp_executor.submit(self._fetch_single_page, res): res
+                    for res in search_results
+                }
+                for future in as_completed(futures):
+                    crawled_pages.append(future.result())
+
+        return crawled_pages
 
 
 def web_search(query: str, region: str = "wt-wt") -> str:
     """
     Performs a web search and returns a generated summary with sources.
     Uses web_research to get content, then summarizes it.
-
-    Args:
-        query (str): The search query.
-        region (str): Search region.
-
-    Returns:
-        str: A summary of the search results with citations.
     """
     try:
         logger.info(f"web_search: Searching for '{query}'...")
 
-        # Use web_research to get raw content (search + fetch)
-        raw_results = web_research(query, region=region)
+        # Get raw content
+        with WebResearcher(region=region) as researcher:
+            pages = researcher.run(query)
 
-        if "Search returned no results" in raw_results or "Search failed" in raw_results:
+        if not pages:
+            return f"Search for '{query}' returned no results or failed."
+
+        # Combine Output
+        raw_results = f"## Research Results for: {query}\n\n"
+        raw_results += "\n".join([page.to_string() for page in pages])
+
+        if "returned no results" in raw_results:
             return raw_results
 
         # Summarize with LLM
@@ -112,49 +196,3 @@ def web_search(query: str, region: str = "wt-wt") -> str:
     except Exception as e:
         logger.error(f"web_search failed: {e}")
         return f"Error performing web search: {str(e)}"
-
-
-def _visit_page_internal(url: str, timeout: int = 15) -> str:
-    """
-    Internal function to visit a single page and extract text using trafilatura.
-    """
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers, timeout=timeout)
-        response.raise_for_status()
-
-        # Fix encoding issues by letting requests guess based on content
-        response.encoding = response.apparent_encoding
-        downloaded = response.text
-        # trafilatura.fetch_url is a robust way to download the page
-        if downloaded is None:
-            # Fallback or error
-            return f"URL: {url}\n\nError: Failed to fetch content."
-
-        # Extract content
-        # include_links=True to keep links
-        text = trafilatura.extract(
-            downloaded,
-            include_links=True,
-            include_comments=False,
-            include_tables=True,
-            no_fallback=False,
-        )
-
-        if text is None:
-            return f"URL: {url}\n\nError: Failed to extract text content."
-
-        # Add Source URL marker
-        text = f"URL: {url}\n\n{text}"
-
-        # Truncate if extremely long
-        if len(text) > 15000:
-            text = text[:15000] + "\n\n[...Content Truncated...]"
-
-        return text
-
-    except Exception as e:
-        logger.error(f"Error visiting {url}: {e}")
-        raise e
