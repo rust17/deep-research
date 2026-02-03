@@ -1,6 +1,5 @@
 import logging
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
@@ -43,8 +42,7 @@ class WebResearcher:
     Encapsulates web research logic, session management, and concurrency.
     """
 
-    def __init__(self, max_workers: int = 5, timeout: int = 15, region: str = "wt-wt"):
-        self.max_workers = max_workers
+    def __init__(self, timeout: int = 15, region: str = "wt-wt"):
         self.timeout = timeout
         self.region = region
         self.session = requests.Session()
@@ -53,15 +51,11 @@ class WebResearcher:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
             }
         )
-        self._executor: Optional[ThreadPoolExecutor] = None
 
     def __enter__(self):
-        self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._executor:
-            self._executor.shutdown(wait=True)
         self.session.close()
 
     def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
@@ -70,7 +64,9 @@ class WebResearcher:
         try:
             with DDGS() as ddgs:
                 # Fetching a few more to filter invalid ones, though here we trust DDGS mostly
-                ddgs_gen = ddgs.text(query, region=self.region, max_results=max_results)
+                ddgs_gen = ddgs.text(
+                    query, region=self.region, safesearch="on", max_results=max_results
+                )
                 if ddgs_gen:
                     for res in ddgs_gen:
                         link = res.get("href")
@@ -85,7 +81,7 @@ class WebResearcher:
             logger.error(f"Search phase failed: {e}")
             return []
 
-    def _fetch_single_page(self, result: SearchResult) -> CrawledPage:
+    def _visit_page(self, result: SearchResult) -> CrawledPage:
         """Internal method to fetch and extract content from a single URL."""
         try:
             response = self.session.get(result.url, timeout=self.timeout)
@@ -121,7 +117,7 @@ class WebResearcher:
 
     def run(self, query: str) -> List[CrawledPage]:
         """
-        Orchestrates the full research process: Search -> Batch Visit.
+        Orchestrates the full research process: Search -> Visit.
         """
         logger.info(f"Starting web research for: {query}")
 
@@ -130,24 +126,10 @@ class WebResearcher:
         if not search_results:
             return []
 
-        # 2. Batch Visit
+        # 2. Visit
         crawled_pages = []
-        # Ensure executor is available (if not used as context manager, create temp one)
-        if self._executor:
-            futures = {
-                self._executor.submit(self._fetch_single_page, res): res for res in search_results
-            }
-            for future in as_completed(futures):
-                crawled_pages.append(future.result())
-        else:
-            # Fallback if not used in 'with' statement
-            with ThreadPoolExecutor(max_workers=self.max_workers) as temp_executor:
-                futures = {
-                    temp_executor.submit(self._fetch_single_page, res): res
-                    for res in search_results
-                }
-                for future in as_completed(futures):
-                    crawled_pages.append(future.result())
+        for search_result in search_results:
+            crawled_pages.append(self._visit_page(search_result))
 
         return crawled_pages
 
