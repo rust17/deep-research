@@ -1,8 +1,8 @@
 import streamlit as st
 import os
 import time
-from src.agent import ResearchAgent
-from src.state_manager import StateManager
+from .agent import ResearchAgent
+from .state_manager import StateManager
 from pathlib import Path
 
 # 页面配置

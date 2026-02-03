@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from src.agent import ResearchAgent
+from .agent import ResearchAgent
 
 # 加载环境变量
 load_dotenv()

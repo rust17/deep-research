@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 
 import trafilatura
 from ddgs import DDGS
-from src.llm_client import LLMClient
+from ..llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 

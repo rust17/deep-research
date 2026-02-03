@@ -7,10 +7,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 
-from src.state_manager import StateManager
-from src.llm_client import LLMClient
-from src.tools import web_search
-from src.prompts import DECISION_PROMPT, REPORT_PROMPT, SYNTHESIZE_PROMPT, SELECT_TASK_PROMPT
+from .state_manager import StateManager
+from .llm_client import LLMClient
+from .tools import web_search
+from .prompts import DECISION_PROMPT, REPORT_PROMPT, SYNTHESIZE_PROMPT, SELECT_TASK_PROMPT
 
 logger = logging.getLogger(__name__)
 
