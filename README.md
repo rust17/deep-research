@@ -1,4 +1,10 @@
 ---
+license: MIT
+tags:
+  - Agent
+  - Research
+  - LLM
+  - DeepResearch
 deployspec:
   entry_file: src/deep_research/gui.py
 ---
