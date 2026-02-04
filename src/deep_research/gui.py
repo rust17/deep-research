@@ -48,6 +48,8 @@ if "running" not in st.session_state:
     st.session_state.running = False
 if "report" not in st.session_state:
     st.session_state.report = None
+if "logs" not in st.session_state:
+    st.session_state.logs = []
 
 # 主界面逻辑
 goal = st.text_input("请输入您的调研目标:", placeholder="例如：2025年全球生成式AI市场发展趋势调研")
@@ -67,23 +69,24 @@ if start_btn and goal:
     else:
         st.session_state.running = True
         st.session_state.report = None
+        st.session_state.logs = []  # 清空旧日志
 
         # 模拟控制台输出区域
         st.subheader("调研日志")
         log_placeholder = st.empty()
-        log_buffer = []
 
         class StreamlitSink:
             def write(self, text):
                 if text.strip():
-                    log_buffer.append(text)
-                    log_placeholder.code("".join(log_buffer[-200:]), language=None)
+                    st.session_state.logs.append(text)
+                    # 实时刷新显示最新日志
+                    log_placeholder.code("".join(st.session_state.logs[-200:]), language=None)
 
             def flush(self):
                 pass
 
         try:
-            from rich.console import Console
+            from src.deep_research.logs import Console
 
             agent = ResearchAgent(user_goal=goal, max_loops=max_loops)
 
@@ -98,11 +101,15 @@ if start_btn and goal:
             st.error(f"发生错误: {e}")
         finally:
             st.session_state.running = False
-            st.rerun()
+            if st.session_state.report:
+                st.rerun()
+
 
 # 展示结果
 if st.session_state.report:
     st.success("调研完成！")
+
+    # 展示调研报告
     st.divider()
     st.header("调研报告")
     st.markdown(st.session_state.report)
@@ -113,3 +120,8 @@ if st.session_state.report:
         file_name="research_report.md",
         mime="text/markdown",
     )
+
+    # 展示过程日志
+    st.divider()
+    with st.expander("查看详细调研日志", expanded=False):
+        st.code("".join(st.session_state.logs), language=None)
