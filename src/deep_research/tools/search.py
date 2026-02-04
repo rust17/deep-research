@@ -1,4 +1,3 @@
-import logging
 import requests
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
@@ -6,8 +5,7 @@ from typing import List, Optional, Dict, Any
 import trafilatura
 from ddgs import DDGS
 from ..llm_client import LLMClient
-
-logger = logging.getLogger(__name__)
+from ..logs import console
 
 
 @dataclass
@@ -75,10 +73,10 @@ class WebResearcher:
                         if link:
                             results.append(SearchResult(title=title, url=link, snippet=body))
 
-            logger.info(f"Found {len(results)} valid links for query: {query}")
+            console.info(f"Found {len(results)} valid links for query: {query}")
             return results
         except Exception as e:
-            logger.error(f"Search phase failed: {e}")
+            console.error(f"Search phase failed: {e}")
             return []
 
     def _visit_page(self, result: SearchResult) -> CrawledPage:
@@ -112,14 +110,13 @@ class WebResearcher:
             return CrawledPage(source=result, content=text, success=True)
 
         except Exception as e:
-            logger.warning(f"Error visiting {result.url}: {e}")
+            console.warning(f"Error visiting {result.url}: {e}")
             return CrawledPage(source=result, content="", success=False, error=str(e))
 
     def run(self, query: str) -> List[CrawledPage]:
         """
         Orchestrates the full research process: Search -> Visit.
         """
-        logger.info(f"Starting web research for: {query}")
 
         # 1. Search
         search_results = self.search(query)
@@ -140,7 +137,7 @@ def web_search(query: str, region: str = "wt-wt") -> str:
     Uses web_research to get content, then summarizes it.
     """
     try:
-        logger.info(f"web_search: Searching for '{query}'...")
+        console.info(f"web_search: Searching for '{query}'...")
 
         # Get raw content
         with WebResearcher(region=region) as researcher:
@@ -171,10 +168,10 @@ def web_search(query: str, region: str = "wt-wt") -> str:
 2. 引用来源，格式为 [来源标题](URL) 或直接使用 [来源序号]。
 3. 如果搜索结果中不包含答案，请明确告知用户。
 """
-        logger.info("web_search: Generating summary...")
+        console.info("web_search: Generating summary...")
         response = llm.query(prompt)
         return response
 
     except Exception as e:
-        logger.error(f"web_search failed: {e}")
+        console.error(f"web_search failed: {e}")
         return f"Error performing web search: {str(e)}"

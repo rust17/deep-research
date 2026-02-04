@@ -79,7 +79,7 @@ SELECT_TASK_PROMPT = """
 ### Output Format
 请以 JSON 格式输出：
 {{
-  "reasoning": "简要评估当前信息完整度（如：'核心逻辑已闭环，虽缺具体数据但不影响结论'），以及为什么要进行（或不进行）下一步。",
+  "reason": "简要评估当前信息完整度（如：'核心逻辑已闭环，虽缺具体数据但不影响结论'），以及为什么要进行（或不进行）下一步。",
   "search_query": "下一步的具体搜索关键词 OR [FINISH]"
 }}
 """
@@ -92,6 +92,7 @@ SYNTHESIZE_PROMPT = """你是一位顶尖的研究数据架构师，擅长构建
 
 ### 目标与背景
 用户研究目标：{user_goal}
+当前聚焦任务: {current_task}
 
 ### 原始素材
 1. 【现有知识库 (Existing Findings)】：

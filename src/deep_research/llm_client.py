@@ -1,14 +1,12 @@
 import os
 import json
-import logging
 from typing import Dict, Any
 from openai import OpenAI
 from dotenv import load_dotenv
+from .logs import console
 
 # 加载环境变量
 load_dotenv()
-
-logger = logging.getLogger(__name__)
 
 
 class LLMClient:
@@ -16,7 +14,7 @@ class LLMClient:
         api_key = os.getenv("OPENAI_API_KEY")
         base_url = os.getenv("OPENAI_BASE_URL")  # Optional
         if not api_key:
-            logger.warning("OPENAI_API_KEY not found in environment variables.")
+            console.warning("OPENAI_API_KEY not found in environment variables.")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         # 默认模型，可配置
@@ -30,7 +28,7 @@ class LLMClient:
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            logger.error(f"LLM Query Failed: {e}")
+            console.error(f"LLM Query Failed: {e}")
             raise
 
     def query_json(self, prompt: str) -> Dict[str, Any]:
@@ -51,9 +49,9 @@ class LLMClient:
 
             return json.loads(content)
         except json.JSONDecodeError:
-            logger.error(f"Failed to decode JSON from LLM response: {content}")
+            console.error(f"Failed to decode JSON from LLM response: {content}")
             # 简单的重试或回退逻辑可以在这里添加，目前直接抛出
             raise
         except Exception as e:
-            logger.error(f"LLM JSON Query Failed: {e}")
+            console.error(f"LLM JSON Query Failed: {e}")
             raise
