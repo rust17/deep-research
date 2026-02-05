@@ -1,9 +1,9 @@
-import requests
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from dataclasses import dataclass
 
+import requests
 import trafilatura
 from ddgs import DDGS
+
 from ..llm_client import LLMClient
 from ..logs import console
 
@@ -14,7 +14,7 @@ class SearchResult:
 
     title: str
     url: str
-    snippet: Optional[str] = None
+    snippet: str | None = None
 
 
 @dataclass
@@ -24,7 +24,7 @@ class CrawledPage:
     source: SearchResult
     content: str
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_string(self) -> str:
         """Formats the page content for display/LLM consumption."""
@@ -56,7 +56,7 @@ class WebResearcher:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.session.close()
 
-    def search(self, query: str, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         """Performs the search using DuckDuckGo."""
         results = []
         try:
@@ -113,7 +113,7 @@ class WebResearcher:
             console.warning(f"Error visiting {result.url}: {e}")
             return CrawledPage(source=result, content="", success=False, error=str(e))
 
-    def run(self, query: str) -> List[CrawledPage]:
+    def run(self, query: str) -> list[CrawledPage]:
         """
         Orchestrates the full research process: Search -> Visit.
         """

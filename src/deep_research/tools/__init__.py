@@ -1,6 +1,6 @@
 import logging
 
-from .search import web_search
+from .search import web_search as web_search
 
 # 屏蔽第三方库的冗余日志
 logging.getLogger("primp").setLevel(logging.WARNING)

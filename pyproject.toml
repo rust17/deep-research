@@ -17,7 +17,15 @@ dependencies = [
 ]
 
 [project.scripts]
-deep-research = "deep_research.cli:main"
+dr = "deep_research.cli:main"
+dr-gui = "deep_research.gui:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
 
 [dependency-groups]
 dev = [

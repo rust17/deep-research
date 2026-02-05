@@ -27,7 +27,7 @@ class StateManager:
         """读取文件内容"""
         if not path.exists():
             return ""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return f.read()
 
     def append_to_file(self, path: Path, content: str):

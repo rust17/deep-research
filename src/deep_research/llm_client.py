@@ -1,8 +1,10 @@
-import os
 import json
-from typing import Dict, Any
-from openai import OpenAI
+import os
+from typing import Any
+
 from dotenv import load_dotenv
+from openai import OpenAI
+
 from .logs import console
 
 # 加载环境变量
@@ -31,7 +33,7 @@ class LLMClient:
             console.error(f"LLM Query Failed: {e}")
             raise
 
-    def query_json(self, prompt: str) -> Dict[str, Any]:
+    def query_json(self, prompt: str) -> dict[str, Any]:
         """强制 JSON 输出查询"""
         try:
             response = self.client.chat.completions.create(

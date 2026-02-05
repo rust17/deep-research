@@ -1,11 +1,15 @@
 import argparse
 import os
 import sys
+
 from dotenv import load_dotenv
 from rich.markdown import Markdown
 from rich.panel import Panel
-from .agent import ResearchAgent
+
+from .console_renderer import ConsoleRenderer
 from .logs import console
+from .orchestrator import Orchestrator
+from .stream_handler import StreamHandler
 
 # 加载环境变量
 load_dotenv()
@@ -35,13 +39,23 @@ def main():
     console.rule("[bold magenta]Deep Research Agent[/bold magenta]")
     console.info(f"🚀 Starting Deep Research for: [bold cyan]{user_goal}[/bold cyan]\n")
 
-    agent = ResearchAgent(user_goal=user_goal, max_loops=args.max_loops)
+    handler = StreamHandler()
+    renderer = ConsoleRenderer()
+    handler.subscribe(renderer)
+
+    agent = Orchestrator(user_goal=user_goal, max_loops=args.max_loops, stream_handler=handler)
 
     try:
         final_report = agent.run()
+
+        # Save Report
+        report_path = "tasks_log/research_report.md"
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(final_report)
+
         console.print()
         console.rule("[bold green]Research Completed[/bold green]")
-        console.success(f"Report saved to [bold]tasks_log/research_report.md[/bold].\n")
+        console.success(f"Report saved to [bold]{report_path}[/bold].\n")
 
         console.print(
             Panel(
