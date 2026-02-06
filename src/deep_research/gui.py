@@ -43,7 +43,8 @@ def run_app():
             os.environ["LARGE_MODEL_NAME"] = large_model
 
         small_model = st.text_input(
-            "Small Model (总结)", value=os.getenv("SMALL_MODEL_NAME", "Qwen/Qwen3-30B-A3B-Instruct-2507")
+            "Small Model (总结)",
+            value=os.getenv("SMALL_MODEL_NAME", "Qwen/Qwen3-30B-A3B-Instruct-2507"),
         )
         if small_model:
             os.environ["SMALL_MODEL_NAME"] = small_model

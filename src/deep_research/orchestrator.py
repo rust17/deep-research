@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from .llm_client import LLMClient
+from .prompt import REPORT_SUMMARIZE_PROMPT
 from .stream_handler import EventType, StreamHandler
 from .task_logger import TaskLogger
 from .tool_manager import ToolRegistry
@@ -102,11 +103,16 @@ class Orchestrator:
 
             # Check for Finish
             if action == "finish":
-                final_answer = params.get("answer", "No answer provided.")
-                self._emit(EventType.WORKFLOW_END, {"result": final_answer})
-                self.logger.log_step("finish", "Completion", final_answer)
-                self.logger.finish(result=final_answer)
-                return final_answer
+                final_answer_hint = params.get("answer", "")
+                self._emit(
+                    EventType.INFO,
+                    {"message": "Agent decided to finish. Synthesizing final report..."},
+                )
+                final_report = self._generate_final_report(final_answer_hint)
+                self._emit(EventType.WORKFLOW_END, {"result": final_report})
+                self.logger.log_step("finish", "Completion", final_report)
+                self.logger.finish(result=final_report)
+                return final_report
 
             # 4. Execute Tool (Act)
             result = self._execute_tool(action, params)
@@ -128,7 +134,7 @@ class Orchestrator:
         # Fallback if loop limit reached
         fallback_msg = "Reached maximum steps without a final answer."
         self._emit(EventType.WARNING, {"message": fallback_msg})
-        final_report = self._synthesize_final_report()
+        final_report = self._generate_final_report()
         self._emit(EventType.WORKFLOW_END, {"result": final_report})
         return final_report
 
@@ -264,13 +270,31 @@ Please provide your next step in JSON format.
             except Exception as e:
                 self._emit(EventType.ERROR, {"message": f"Context compression failed: {e}"})
 
-    def _synthesize_final_report(self) -> str:
-        """Force a final synthesis if loop ends."""
-        # Similar to the original agent's report generation
-        prompt = f"""
-        User Goal: {self.user_goal}
-        History: {json.dumps(self.history, indent=2, ensure_ascii=False)}
+    def _generate_final_report(self, final_answer_hint: str = "") -> str:
+        """Force a final synthesis if loop ends or agent finishes."""
+        # Format History for synthesis
+        history_str = ""
+        for item in self.history:
+            history_str += f"\nStep {item['step']}:\n"
+            history_str += f"Thought: {item['thought']}\n"
+            history_str += f"Action: {item['action']}({json.dumps(item['parameters'])})\n"
+            # Include more of the observation for the final report
+            obs_preview = str(item["observation"])
+            history_str += f"Observation: {obs_preview}\n"
 
-        Please generate a comprehensive report based on the history above.
-        """
+        if final_answer_hint:
+            history_str += f"\nAgent's preliminary conclusion: {final_answer_hint}\n"
+
+        # Memory Section
+        memory_section = ""
+        if self.long_term_memory:
+            memory_section = f"\n### Long-term Memory (Summarized Past)\n{self.long_term_memory}\n"
+
+        prompt = f"""
+### Execution History
+{history_str}
+{memory_section}
+
+{REPORT_SUMMARIZE_PROMPT.format(user_goal=self.user_goal)}
+"""
         return self.llm.query(prompt)
