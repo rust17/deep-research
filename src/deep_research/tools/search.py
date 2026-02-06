@@ -1,8 +1,8 @@
+import asyncio
 from dataclasses import dataclass
 
-import requests
 import trafilatura
-from ddgs import DDGS
+from playwright.async_api import async_playwright, BrowserContext
 
 from ..llm_client import LLMClient
 from ..logs import console
@@ -37,41 +37,36 @@ class CrawledPage:
 
 class WebResearcher:
     """
-    Encapsulates web research logic, session management, and concurrency.
+    Encapsulates web research logic using Playwright (Async) and Trafilatura.
     """
 
-    def __init__(self, timeout: int = 15, region: str = "wt-wt"):
-        self.timeout = timeout
+    def __init__(self, region: str = "wt-wt", timeout: int = 30000, headless: bool = True):
         self.region = region
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-            }
-        )
+        self.timeout = timeout  # ms
+        self.headless = headless
 
-    def __enter__(self):
-        return self
+    async def _search(self, query: str, max_results: int = 10) -> list[SearchResult]:
+        """Performs the search using DDGS in an executor."""
+        from ddgs import DDGS
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.session.close()
+        def _ssearch():
+            with DDGS() as ddgs:
+                return list(
+                    ddgs.text(query, region=self.region, safesearch="on", max_results=max_results)
+                )
 
-    def search(self, query: str, max_results: int = 10) -> list[SearchResult]:
-        """Performs the search using DuckDuckGo."""
         results = []
         try:
-            with DDGS() as ddgs:
-                # Fetching a few more to filter invalid ones, though here we trust DDGS mostly
-                ddgs_gen = ddgs.text(
-                    query, region=self.region, safesearch="on", max_results=max_results
-                )
-                if ddgs_gen:
-                    for res in ddgs_gen:
-                        link = res.get("href")
-                        title = res.get("title", "No Title")
-                        body = res.get("body", "")
-                        if link:
-                            results.append(SearchResult(title=title, url=link, snippet=body))
+            loop = asyncio.get_running_loop()
+            ddgs_results = await loop.run_in_executor(None, _ssearch)
+
+            if ddgs_results:
+                for res in ddgs_results:
+                    link = res.get("href")
+                    title = res.get("title", "No Title")
+                    body = res.get("body", "")
+                    if link:
+                        results.append(SearchResult(title=title, url=link, snippet=body))
 
             console.info(f"Found {len(results)} valid links for query: {query}")
             return results
@@ -79,23 +74,51 @@ class WebResearcher:
             console.error(f"Search phase failed: {e}")
             return []
 
-    def _visit_page(self, result: SearchResult) -> CrawledPage:
-        """Internal method to fetch and extract content from a single URL."""
+    async def _visit_page(self, context: BrowserContext, result: SearchResult) -> CrawledPage:
+        """Internal method to visit a page with Playwright and extract content."""
+        page = await context.new_page()
         try:
-            response = self.session.get(result.url, timeout=self.timeout)
-            response.raise_for_status()
+            # Retry logic for page loading: Max 3 attempts
+            for attempt in range(3):
+                try:
+                    # 'load' is more stable for sites with redirects
+                    await page.goto(result.url, wait_until="load", timeout=self.timeout)
+                    # Optional: wait for network to settle, but don't block too long (max 5s)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        # networkidle timeout is okay, we just want to give it a chance to settle
+                        pass
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        raise
+                    console.warning(f"Retry {attempt + 1} for {result.url} due to: {e}")
+                    await asyncio.sleep(2)
 
-            # Handle encoding
-            if response.encoding is None:
-                response.encoding = response.apparent_encoding
+            # Extra safety: if page is still navigating, content() might fail
+            content = ""
+            for _ in range(3):
+                try:
+                    content = await page.content()
+                    break
+                except Exception as e:
+                    if "navigating" in str(e).lower():
+                        await asyncio.sleep(1)
+                        continue
+                    raise
 
-            # Extract text
-            text = trafilatura.extract(
-                response.text,
-                include_links=True,
-                include_comments=False,
-                include_tables=True,
-                no_fallback=False,
+            # Extract text using trafilatura in a thread (CPU bound)
+            loop = asyncio.get_running_loop()
+            text = await loop.run_in_executor(
+                None,
+                lambda: trafilatura.extract(
+                    content,
+                    include_links=True,
+                    include_comments=False,
+                    include_tables=True,
+                    no_fallback=False,
+                ),
             )
 
             if not text:
@@ -112,36 +135,56 @@ class WebResearcher:
         except Exception as e:
             console.warning(f"Error visiting {result.url}: {e}")
             return CrawledPage(source=result, content="", success=False, error=str(e))
+        finally:
+            await page.close()
 
-    def run(self, query: str) -> list[CrawledPage]:
+    async def run(self, query: str) -> list[CrawledPage]:
         """
-        Orchestrates the full research process: Search -> Visit.
+        Orchestrates the full research process: Search -> Visit (Parallel).
         """
-
         # 1. Search
-        search_results = self.search(query)
+        search_results = await self._search(query)
         if not search_results:
             return []
 
         # 2. Visit
         crawled_pages = []
-        for search_result in search_results:
-            crawled_pages.append(self._visit_page(search_result))
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=self.headless)
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                    viewport={"width": 1280, "height": 800},
+                )
+
+                # Execute visits in parallel
+                tasks = [self._visit_page(context, res) for res in search_results]
+                crawled_pages = await asyncio.gather(*tasks)
+
+                await context.close()
+                await browser.close()
+
+        except Exception as e:
+            console.error(f"Browser execution failed: {e}")
 
         return crawled_pages
+
+
+async def _aresearch(query: str, region: str) -> list[CrawledPage]:
+    researcher = WebResearcher(region=region)
+    return await researcher.run(query)
 
 
 def web_search(query: str, region: str = "wt-wt") -> str:
     """
     Performs a web search and returns a generated summary with sources.
-    Uses web_research to get content, then summarizes it.
+    Uses async WebResearcher internally.
     """
     try:
         console.info(f"web_search: Searching for '{query}'...")
 
-        # Get raw content
-        with WebResearcher(region=region) as researcher:
-            pages = researcher.run(query)
+        # Run Async Pipeline via asyncio.run
+        pages = asyncio.run(_aresearch(query, region))
 
         if not pages:
             return f"Search for '{query}' returned no results or failed."
@@ -153,20 +196,25 @@ def web_search(query: str, region: str = "wt-wt") -> str:
         if "returned no results" in raw_results:
             return raw_results
 
-        # Summarize with LLM
+        # Summarize with LLM (Sync)
         llm = LLMClient()
         prompt = f"""
-你是一个专业的搜索助手。
-用户搜索的关键词是："{query}"
+You are given a piece of content and the requirement of information to extract. Your task is to extract the information specifically requested. Be precise and focus exclusively on the requested information.
 
-以下是从网页抓取到的原始搜索结果和内容：
+INFORMATION TO EXTRACT:
+{query}
 
+INSTRUCTIONS:
+1. Extract the information relevant to the focus above.
+2. If the exact information is not found, extract the most closely related details.
+3. Be specific and include exact details when available.
+4. Clearly organize the extracted information for easy understanding.
+5. Do not include general summaries or unrelated content.
+
+CONTENT TO ANALYZE:
 {raw_results}
 
-请严格基于上述搜索结果：
-1. 提供一个简洁、准确的摘要来回答用户的问题。
-2. 引用来源，格式为 [来源标题](URL) 或直接使用 [来源序号]。
-3. 如果搜索结果中不包含答案，请明确告知用户。
+EXTRACTED INFORMATION:
 """
         console.info("web_search: Generating summary...")
         response = llm.query(prompt)
