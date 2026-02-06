@@ -1,8 +1,9 @@
 import asyncio
+import contextlib
 from dataclasses import dataclass
 
 import trafilatura
-from playwright.async_api import async_playwright, BrowserContext
+from playwright.async_api import BrowserContext, async_playwright
 
 from ..llm_client import LLMClient
 from ..logs import console
@@ -84,11 +85,9 @@ class WebResearcher:
                     # 'load' is more stable for sites with redirects
                     await page.goto(result.url, wait_until="load", timeout=self.timeout)
                     # Optional: wait for network to settle, but don't block too long (max 5s)
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=5000)
-                    except Exception:
+                    with contextlib.suppress(Exception):
                         # networkidle timeout is okay, we just want to give it a chance to settle
-                        pass
+                        await page.wait_for_load_state("networkidle", timeout=5000)
                     break
                 except Exception as e:
                     if attempt == 2:
@@ -217,7 +216,7 @@ CONTENT TO ANALYZE:
 EXTRACTED INFORMATION:
 """
         console.info("web_search: Generating summary...")
-        response = llm.query(prompt)
+        response = llm.query(prompt, model_type="small")
         return response
 
     except Exception as e:

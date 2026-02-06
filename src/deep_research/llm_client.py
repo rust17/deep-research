@@ -19,25 +19,27 @@ class LLMClient:
             console.warning("OPENAI_API_KEY not found in environment variables.")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
-        # 默认模型，可配置
-        self.model = os.getenv("MODEL_NAME", "gpt-4o")
+        self.large_model = os.getenv("LARGE_MODEL_NAME", "gpt-4o")
+        self.small_model = os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini")
 
-    def query(self, prompt: str) -> str:
+    def query(self, prompt: str, model_type: str = "large") -> str:
         """普通文本查询"""
+        model = self.large_model if model_type == "large" else self.small_model
         try:
             response = self.client.chat.completions.create(
-                model=self.model, messages=[{"role": "user", "content": prompt}], temperature=0.7
+                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            console.error(f"LLM Query Failed: {e}")
+            console.error(f"LLM Query Failed ({model}): {e}")
             raise
 
-    def query_json(self, prompt: str) -> dict[str, Any]:
+    def query_json(self, prompt: str, model_type: str = "large") -> dict[str, Any]:
         """强制 JSON 输出查询"""
+        model = self.large_model if model_type == "large" else self.small_model
         try:
             response = self.client.chat.completions.create(
-                model=self.model, messages=[{"role": "user", "content": prompt}], temperature=0.5
+                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.5
             )
             content = response.choices[0].message.content.strip()
 

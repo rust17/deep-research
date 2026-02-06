@@ -35,17 +35,22 @@ def run_app():
         if base_url:
             os.environ["OPENAI_BASE_URL"] = base_url
 
-        model_name = st.text_input(
-            "Model Name", value=os.getenv("MODEL_NAME", "Qwen/Qwen3-30B-A3B-Instruct-2507")
+        large_model = st.text_input(
+            "Large Model (指挥)",
+            value=os.getenv("LARGE_MODEL_NAME", "Qwen/Qwen3-235B-A22B-Instruct-2507"),
         )
-        if model_name:
-            os.environ["MODEL_NAME"] = model_name
+        if large_model:
+            os.environ["LARGE_MODEL_NAME"] = large_model
+
+        small_model = st.text_input(
+            "Small Model (总结)", value=os.getenv("SMALL_MODEL_NAME", "Qwen/Qwen3-30B-A3B-Instruct-2507")
+        )
+        if small_model:
+            os.environ["SMALL_MODEL_NAME"] = small_model
 
         max_loops = st.slider("最大循环次数", min_value=1, max_value=20, value=10)
 
-        st.info(
-            "如果你没有提供相关配置，可以直接运行，默认使用魔搭社区的 Qwen/Qwen3-30B-A3B-Instruct-2507 作为运行模型"
-        )
+        st.info("指挥模型负责决策，总结模型负责处理长文本和搜索提取。")
 
     # 初始化状态
     if "running" not in st.session_state:

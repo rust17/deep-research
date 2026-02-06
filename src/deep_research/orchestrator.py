@@ -245,10 +245,10 @@ Please provide your next step in JSON format.
             summary_prompt = f"""
             Please summarize the following research steps into a concise paragraph.
             Focus on the key findings and actions taken.
-            
+
             Current Long-term Memory:
             {self.long_term_memory}
-            
+
             New Steps to Summarize:
             {json.dumps(steps_to_summarize, indent=2)}
             """
@@ -258,7 +258,7 @@ Please provide your next step in JSON format.
                     EventType.INFO,
                     {"message": "Compressing context and updating long-term memory..."},
                 )
-                new_summary = self.llm.query(summary_prompt)
+                new_summary = self.llm.query(summary_prompt, model_type="small")
                 self.long_term_memory = new_summary
                 self._emit(EventType.INFO, {"message": "Context compressed successfully."})
             except Exception as e:
@@ -270,7 +270,7 @@ Please provide your next step in JSON format.
         prompt = f"""
         User Goal: {self.user_goal}
         History: {json.dumps(self.history, indent=2, ensure_ascii=False)}
-        
+
         Please generate a comprehensive report based on the history above.
         """
         return self.llm.query(prompt)
