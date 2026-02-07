@@ -1,5 +1,5 @@
 import json
-import time
+import threading
 from datetime import datetime
 from typing import Any
 
@@ -38,10 +38,17 @@ You MUST strictly output a JSON object in the following format:
 
 
 class Orchestrator:
-    def __init__(self, user_goal: str, max_loops: int = 15, stream_handler: StreamHandler = None):
+    def __init__(
+        self,
+        user_goal: str,
+        max_loops: int = 15,
+        stream_handler: StreamHandler = None,
+        stop_event: threading.Event = None,
+    ):
         self.user_goal = user_goal
         self.max_loops = max_loops
         self.stream_handler = stream_handler
+        self.stop_event = stop_event
 
         self.llm = LLMClient()
         self.logger = TaskLogger(goal=user_goal)
@@ -85,9 +92,13 @@ class Orchestrator:
         self._emit(Event.INIT, {"goal": self.user_goal})
 
         loop_count = 0
-        final_answer = ""
 
         while loop_count < self.max_loops:
+            # Check for stop signal
+            if self.stop_event and self.stop_event.is_set():
+                self._emit(Event.WARN, "Received stop signal. Terminating research...")
+                break
+
             loop_count += 1
 
             # 1. Build Context & Prompt
