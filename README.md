@@ -1,25 +1,40 @@
+license: MIT
+tags:
+  - Agent
+  - Research
+  - LLM
+  - DeepResearch
+deployspec:
+  entry_file: src/deep_research/gui.py
 ---
-# 详细文档见https://modelscope.cn/docs/%E5%88%9B%E7%A9%BA%E9%97%B4%E5%8D%A1%E7%89%87
-domain: #领域：cv/nlp/audio/multi-modal/AutoML
-# - cv
-tags: #自定义标签
--
-datasets: #关联数据集
-  evaluation:
-  #- iic/ICDAR13_HCTR_Dataset
-  test:
-  #- iic/MTWI
-  train:
-  #- iic/SIBR
-models: #关联模型
-#- iic/ofa_ocr-recognition_general_base_zh
+# Deep Research Agent
 
-## 启动文件(若SDK为Gradio/Streamlit，默认为app.py, 若为Static HTML, 默认为index.html)
-# deployspec:
-#   entry_file: app.py
-license: Apache License 2.0
----
-#### Clone with HTTP
+A deep autonomous research agent powered by Large Language Models.
+
+## Configuration
+
+To run this agent, you need to configure the following environment variables in the ModelScope Studio settings:
+
+- `OPENAI_API_KEY`: Your OpenAI API key (or compatible).
+- `OPENAI_BASE_URL`: (Optional) Base URL for the LLM API (default: `https://api-inference.modelscope.cn/v1`).
+- `MODEL_NAME`: (Optional) Model name to use (default: `Qwen/Qwen3-30B-A3B-Instruct-2507`).
+
+## Features
+
+- **Autonomous Research**: Breaks down complex topics into sub-tasks.
+- **Deep Web Search**: scours the web for relevant information.
+- **Synthesis**: Compiles findings into a comprehensive report.
+- **UI**: Easy to use Streamlit interface.
+
+## Local Development
+
 ```bash
- git clone https://www.modelscope.cn/studios/rust17/deep-research.git
+# Install dependencies
+uv sync
+
+# Run the CLI
+uv run deep-research "Your research goal"
+
+# Run the GUI
+uv run streamlit run src/deep_research/gui.py
 ```
