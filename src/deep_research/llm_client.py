@@ -2,6 +2,7 @@ import json
 import os
 from typing import Any
 
+import tiktoken
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -21,6 +22,21 @@ class LLMClient:
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.large_model = os.getenv("LARGE_MODEL_NAME", "gpt-4o")
         self.small_model = os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini")
+        self.large_limit = int(os.getenv("LARGE_MODEL_CONTEXT_LIMIT", "128000"))
+
+        # Initialize encoders
+        try:
+            self.large_encoding = tiktoken.encoding_for_model(self.large_model)
+        except KeyError:
+            self.large_encoding = tiktoken.get_encoding("cl100k_base")
+
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in a text string."""
+        return len(self.large_encoding.encode(text))
+
+    def get_context_limit(self) -> int:
+        """Returns the context limit for the specified model type."""
+        return self.large_limit
 
     def query(self, prompt: str, model_type: str = "large") -> str:
         """普通文本查询"""

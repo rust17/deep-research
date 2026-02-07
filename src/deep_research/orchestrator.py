@@ -128,7 +128,6 @@ class Orchestrator:
             self.history.append(observation_entry)
             self._emit(EventType.STEP_COMPLETE, {"step": loop_count, "observation": result})
 
-            # Context Compression (Simple implementation)
             self._manage_context()
 
         # Fallback if loop limit reached
@@ -150,7 +149,7 @@ class Orchestrator:
             history_str += f"Thought: {item['thought']}\n"
             history_str += f"Action: {item['action']}({json.dumps(item['parameters'])})\n"
             # Truncate observation
-            obs_preview = str(item["observation"])[:500]
+            obs_preview = str(item["observation"])
             history_str += f"Observation: {obs_preview}...\n"
 
         # Memory Section
@@ -239,14 +238,25 @@ Please provide your next step in JSON format.
     def _manage_context(self):
         """
         Context Management:
-        If history is too long, summarize the oldest steps and append to long_term_memory.
+        If the current context (prompt) size approaches the model's limit,
+        summarize the oldest steps and update long_term_memory.
         """
-        MAX_HISTORY = 5
+        current_prompt = self._build_prompt()
+        token_count = self.llm.count_tokens(current_prompt)
+        limit = self.llm.get_context_limit()
+        threshold = int(limit * 0.8)
 
-        if len(self.history) > MAX_HISTORY:
-            # Pop the oldest items to summarize
-            steps_to_summarize = self.history[:-MAX_HISTORY]
-            self.history = self.history[-MAX_HISTORY:]
+        if token_count > threshold:
+            self._emit(
+                EventType.INFO,
+                {
+                    "message": f"Context size ({token_count} tokens) exceeds threshold ({threshold}). Compressing..."
+                },
+            )
+
+            # Keep the most recent 2 steps, summarize the rest
+            steps_to_summarize = self.history[:-2]
+            self.history = self.history[-2:]
 
             summary_prompt = f"""
             Please summarize the following research steps into a concise paragraph.
@@ -264,7 +274,7 @@ Please provide your next step in JSON format.
                     EventType.INFO,
                     {"message": "Compressing context and updating long-term memory..."},
                 )
-                new_summary = self.llm.query(summary_prompt, model_type="small")
+                new_summary = self.llm.query(summary_prompt)
                 self.long_term_memory = new_summary
                 self._emit(EventType.INFO, {"message": "Context compressed successfully."})
             except Exception as e:

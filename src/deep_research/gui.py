@@ -49,6 +49,13 @@ def run_app():
         if small_model:
             os.environ["SMALL_MODEL_NAME"] = small_model
 
+        context_limit = st.text_input(
+            "指挥模型的最大上下文",
+            value=os.getenv("LARGE_MODEL_CONTEXT_LIMIT", 262144),
+        )
+        if context_limit:
+            os.environ["LARGE_MODEL_CONTEXT_LIMIT"] = context_limit
+
         max_loops = st.slider("最大循环次数", min_value=1, max_value=20, value=10)
 
         st.info("指挥模型负责决策，总结模型负责处理长文本和搜索提取。")
