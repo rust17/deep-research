@@ -45,6 +45,7 @@ class WebResearcher:
         self.region = region
         self.timeout = timeout  # ms
         self.headless = headless
+        self.semaphore = asyncio.Semaphore(5)
 
     async def _search(self, query: str, max_results: int = 10) -> list[SearchResult]:
         """Performs the search using DDGS in an executor."""
@@ -77,65 +78,70 @@ class WebResearcher:
 
     async def _visit_page(self, context: BrowserContext, result: SearchResult) -> CrawledPage:
         """Internal method to visit a page with Playwright and extract content."""
-        page = await context.new_page()
-        try:
-            # Retry logic for page loading: Max 3 attempts
-            for attempt in range(3):
-                try:
-                    # 'load' is more stable for sites with redirects
-                    await page.goto(result.url, wait_until="load", timeout=self.timeout)
-                    # Optional: wait for network to settle, but don't block too long (max 5s)
-                    with contextlib.suppress(Exception):
-                        # networkidle timeout is okay, we just want to give it a chance to settle
-                        await page.wait_for_load_state("networkidle", timeout=5000)
-                    break
-                except Exception as e:
-                    if attempt == 2:
-                        raise
-                    console.warning(f"Retry {attempt + 1} for {result.url} due to: {e}")
-                    await asyncio.sleep(2)
-
-            # Extra safety: if page is still navigating, content() might fail
-            content = ""
-            for _ in range(3):
-                try:
-                    content = await page.content()
-                    break
-                except Exception as e:
-                    if "navigating" in str(e).lower():
-                        await asyncio.sleep(1)
-                        continue
-                    raise
-
-            # Extract text using trafilatura in a thread (CPU bound)
-            loop = asyncio.get_running_loop()
-            text = await loop.run_in_executor(
-                None,
-                lambda: trafilatura.extract(
-                    content,
-                    include_links=True,
-                    include_comments=False,
-                    include_tables=True,
-                    no_fallback=False,
-                ),
-            )
-
-            if not text:
-                return CrawledPage(
-                    source=result, content="", success=False, error="Failed to extract text content"
+        async with self.semaphore:
+            page = await context.new_page()
+            try:
+                # Intercept and block unnecessary resources
+                await page.route(
+                    "**/*",
+                    lambda route: route.abort()
+                    if route.request.resource_type in ["image", "media", "font"]
+                    else route.continue_(),
                 )
 
-            # Simple truncation strategy
-            if len(text) > 15000:
-                text = text[:15000] + "\n\n[...Content Truncated...]"
+                # Retry logic for page loading: Max 3 attempts
+                for attempt in range(3):
+                    try:
+                        # 'domcontentloaded' is faster and sufficient for text extraction
+                        await page.goto(result.url, wait_until="domcontentloaded", timeout=self.timeout)
+                        break
+                    except Exception as e:
+                        if attempt == 2:
+                            raise
+                        console.warning(f"Retry {attempt + 1} for {result.url} due to: {e}")
+                        await asyncio.sleep(2)
 
-            return CrawledPage(source=result, content=text, success=True)
+                # Extra safety: if page is still navigating, content() might fail
+                content = ""
+                for _ in range(3):
+                    try:
+                        content = await page.content()
+                        break
+                    except Exception as e:
+                        if "navigating" in str(e).lower():
+                            await asyncio.sleep(1)
+                            continue
+                        raise
 
-        except Exception as e:
-            console.warning(f"Error visiting {result.url}: {e}")
-            return CrawledPage(source=result, content="", success=False, error=str(e))
-        finally:
-            await page.close()
+                # Extract text using trafilatura in a thread (CPU bound)
+                loop = asyncio.get_running_loop()
+                text = await loop.run_in_executor(
+                    None,
+                    lambda: trafilatura.extract(
+                        content,
+                        include_links=True,
+                        include_comments=False,
+                        include_tables=True,
+                        no_fallback=False,
+                    ),
+                )
+
+                if not text:
+                    return CrawledPage(
+                        source=result, content="", success=False, error="Failed to extract text content"
+                    )
+
+                # Simple truncation strategy
+                if len(text) > 15000:
+                    text = text[:15000] + "\n\n[...Content Truncated...]"
+
+                return CrawledPage(source=result, content=text, success=True)
+
+            except Exception as e:
+                console.warning(f"Error visiting {result.url}: {e}")
+                return CrawledPage(source=result, content="", success=False, error=str(e))
+            finally:
+                await page.close()
 
     async def run(self, query: str) -> list[CrawledPage]:
         """
