@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+build/
+dist/
+*.egg-info/
+.python-version
+
+# Logs
+*.log
+tasks_log/
+deep-research-*.log
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Other
+.ruff_cache/
+.DS_Store
