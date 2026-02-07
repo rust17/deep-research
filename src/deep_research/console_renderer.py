@@ -1,63 +1,51 @@
 from rich.panel import Panel
 
 from .logs import console
-from .stream_handler import Event, EventType
+from .stream_handler import Event, Pulse
 
 
 class ConsoleRenderer:
     def __init__(self):
         self.current_step = 0
-        self._status = None
 
-    def __call__(self, event: Event):
-        self.render_event(event)
+    def __call__(self, pulse: Pulse):
+        self.render_pulse(pulse)
 
-    def render_event(self, event: Event):
-        if event.type == EventType.WORKFLOW_START:
-            console.rule("[bold blue]Orchestrator Started[/bold blue]")
-            console.print(f"Goal: {event.data.get('goal')}")
+    def render_pulse(self, pulse: Pulse):
+        if pulse.type == Event.INIT:
+            console.rule("[bold blue]Research Initiated[/bold blue]")
+            console.print(f"Goal: {pulse.content.get('goal')}")
 
-        elif event.type == EventType.AGENT_THINK:
-            step = event.data.get("step", 0)
-            if step > self.current_step:
-                self.current_step = step
-                console.rule(f"[bold yellow]Step {self.current_step}[/bold yellow]")
+        elif pulse.type == Event.THOUGHT:
+            step = pulse.metadata.get("step", self.current_step)
+            console.print(Panel(f"[bold]Thinking:[/bold] {pulse.content}", border_style="cyan"))
 
-            thought = event.data.get("thought", "")
-            console.print(Panel(f"[bold]Thinking:[/bold] {thought}", border_style="cyan"))
+        elif pulse.type == Event.ACTION:
+            console.info(f"Executing [bold]{pulse.name}[/bold] with: {pulse.content}")
 
-        elif event.type == EventType.TOOL_START:
-            action = event.data.get("tool")
-            params = event.data.get("parameters")
-            console.info(f"Executing {action} with parameters: {params}")
-            # Note: console.status is tricky here because it's a context manager.
-            # In a real event-driven system, we might use rich.live or just print.
-            # For simplicity, we'll just use print for now.
-
-        elif event.type == EventType.TOOL_END:
-            action = event.data.get("tool")
-            status = event.data.get("status")
-            if status == "success":
-                result = event.data.get("result")
-                log_preview = str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
-                console.print(
-                    Panel(
-                        f"[bold]Result:[/bold] {log_preview}",
-                        border_style="green",
-                        title=f"Output: {action}",
-                    )
+        elif pulse.type == Event.OBSERVATION:
+            result = pulse.content
+            log_preview = str(result)[:200] + "..." if len(str(result)) > 200 else str(result)
+            console.print(
+                Panel(
+                    f"[bold]Result:[/bold] {log_preview}",
+                    border_style="green",
+                    title=f"Output: {pulse.name}",
                 )
-            else:
-                console.error(f"Tool {action} failed: {event.data.get('error')}")
+            )
 
-        elif event.type == EventType.INFO:
-            console.info(event.data.get("message"))
+        elif pulse.type == Event.STEP:
+            self.current_step = pulse.metadata.get("step", self.current_step)
+            console.rule(f"[bold yellow]Step {self.current_step} Complete[/bold yellow]")
 
-        elif event.type == EventType.WARNING:
-            console.warning(event.data.get("message"))
+        elif pulse.type == Event.INFO:
+            console.info(pulse.content)
 
-        elif event.type == EventType.ERROR:
-            console.error(event.data.get("message"))
+        elif pulse.type == Event.WARN:
+            console.warning(pulse.content)
 
-        elif event.type == EventType.WORKFLOW_END:
-            console.success("Orchestrator finished.")
+        elif pulse.type == Event.ERROR:
+            console.error(pulse.content)
+
+        elif pulse.type == Event.FINISH:
+            console.success("Research cycle completed.")

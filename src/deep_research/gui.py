@@ -5,14 +5,12 @@ from pathlib import Path
 import streamlit as st
 
 # Add project root to sys.path
-# Assuming this file is at src/deep_research/gui.py
-# We want to add the directory containing 'src' (which is the project root)
 project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.deep_research.orchestrator import Orchestrator
-from src.deep_research.stream_handler import Event, EventType, StreamHandler
+from src.deep_research.stream_handler import Event, Pulse, StreamHandler
 
 
 def run_app():
@@ -30,7 +28,8 @@ def run_app():
             os.environ["OPENAI_API_KEY"] = api_key
 
         base_url = st.text_input(
-            "Base URL", value=os.getenv("OPENAI_BASE_URL", "https://api-inference.modelscope.cn/v1")
+            "Base URL",
+            value=os.getenv("OPENAI_BASE_URL", "https://api-inference.modelscope.cn/v1"),
         )
         if base_url:
             os.environ["OPENAI_BASE_URL"] = base_url
@@ -98,43 +97,43 @@ def run_app():
             # 使用 StreamHandler
             handler = StreamHandler()
 
-            def streamlit_callback(event: Event):
-                st.session_state.events.append(event)
+            def streamlit_callback(pulse: Pulse):
+                st.session_state.events.append(pulse)
 
                 with status_container:
-                    if event.type == EventType.WORKFLOW_START:
-                        st.info(f"🚀 调研启动: {event.data.get('goal')}")
+                    if pulse.type == Event.INIT:
+                        st.info(f"🚀 调研启动: {pulse.content.get('goal')}")
 
-                    elif event.type == EventType.AGENT_THINK:
+                    elif pulse.type == Event.THOUGHT:
                         with st.chat_message("assistant"):
-                            st.markdown(
-                                f"**思考 (步骤 {event.data.get('step')}):**\n{event.data.get('thought')}"
-                            )
+                            step = pulse.metadata.get("step", "?")
+                            st.markdown(f"**思考 (步骤 {step}):**\n{pulse.content}")
 
-                    elif event.type == EventType.TOOL_START:
-                        st.status(
-                            f"🛠️ 正在调用工具: {event.data.get('tool')}...", expanded=True
-                        ).write(f"参数: {event.data.get('parameters')}")
+                    elif pulse.type == Event.ACTION:
+                        st.status(f"🛠️ 正在调用工具: {pulse.name}...", expanded=True).write(
+                            f"参数: {pulse.content}"
+                        )
 
-                    elif event.type == EventType.TOOL_END:
-                        if event.data.get("status") == "success":
-                            st.success(
-                                f"✅ 工具 {event.data.get('tool')} 执行完毕 (耗时: {event.data.get('duration', 0):.2f}s)"
-                            )
-                            with st.expander("查看执行结果"):
-                                st.write(event.data.get("result"))
-                        else:
-                            st.error(
-                                f"❌ 工具 {event.data.get('tool')} 执行失败: {event.data.get('error')}"
-                            )
+                    elif pulse.type == Event.OBSERVATION:
+                        st.success(
+                            f"✅ 工具 {pulse.name} 执行完毕 (耗时: {pulse.metadata.get('duration', 0):.2f}s)"
+                        )
+                        with st.expander("查看执行结果"):
+                            st.write(pulse.content)
 
-                    elif event.type == EventType.INFO:
-                        st.toast(event.data.get("message"))
+                    elif pulse.type == Event.STEP:
+                        st.divider()
 
-                    elif event.type == EventType.ERROR:
-                        st.error(f"⚠️ 错误: {event.data.get('message')}")
+                    elif pulse.type == Event.INFO:
+                        st.toast(pulse.content)
 
-                    elif event.type == EventType.WORKFLOW_END:
+                    elif pulse.type == Event.WARN:
+                        st.warning(pulse.content)
+
+                    elif pulse.type == Event.ERROR:
+                        st.error(f"⚠️ 错误: {pulse.content}")
+
+                    elif pulse.type == Event.FINISH:
                         st.success("🏁 调研任务完成！")
 
             handler.subscribe(streamlit_callback)
@@ -172,11 +171,11 @@ def run_app():
             mime="text/markdown",
         )
 
-        # 展示过程事件记录 (替代旧的日志)
+        # 展示过程事件记录
         st.divider()
         with st.expander("查看结构化执行记录", expanded=False):
-            for i, event in enumerate(st.session_state.events):
-                st.write(f"{i + 1}. **{event.type.value}** - {event.data}")
+            for i, pulse in enumerate(st.session_state.events):
+                st.write(f"{i + 1}. **{pulse.type.value}** - {pulse.to_dict()}")
 
 
 def main():

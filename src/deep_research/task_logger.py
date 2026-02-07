@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from .logs import console
+from .stream_handler import Event, Pulse
 
 
 class TaskLogger:
@@ -27,22 +28,19 @@ class TaskLogger:
         console.info(f"Task Logger initialized. Log file: [bold]{self.log_file}[/bold]")
 
         # 记录初始信息
-        self.log_step("init", "Task Started", {"goal": goal})
+        self.step(Event.INIT, "Task Started", {"goal": goal})
 
-    def log_step(self, step_type: str, step_name: str, content: Any, metadata: dict | None = None):
+    def step(self, event_type: Event, name: str, content: Any, metadata: dict | None = None):
         """
         记录一个执行步骤。
-        step_type: 'thought', 'tool_call', 'tool_result', 'system', 'error'
         """
-        step = {
-            "timestamp": datetime.now().isoformat(),
-            "time_since_start": round(time.time() - self.start_time, 2),
-            "type": step_type,
-            "name": step_name,
-            "content": content,
-            "metadata": metadata or {},
-        }
-        self.steps.append(step)
+        pulse = Pulse(
+            type=event_type,
+            name=name,
+            content=content,
+            metadata=metadata or {},
+        )
+        self.steps.append(pulse.to_dict())
         self._save()
 
     def _save(self):
