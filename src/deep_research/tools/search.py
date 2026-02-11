@@ -1,12 +1,32 @@
 import asyncio
-import contextlib
+import mimetypes
+import shutil
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterator, List, Optional
 
 import trafilatura
-from playwright.async_api import BrowserContext, async_playwright
+from markitdown import MarkItDown
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTTextContainer
+from playwright.async_api import BrowserContext, Download, Page, Response, async_playwright
 
 from ..llm_client import LLMClient
 from ..logs import console
+
+# --- Configuration ---
+MAX_LINE_LENGTH = 2000
+MAX_LINES = 1000
+MAX_TOTAL_CHARS = 3000
+MIN_JOIN_LENGTH = 15
+GLOBAL_RESULT_LIMIT = 30000
+SEARCH_TIMEOUT = 30000  # ms
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/91.0.4472.124 Safari/537.36"
+)
 
 
 @dataclass
@@ -36,148 +56,344 @@ class CrawledPage:
         return f"{header}\nURL: {self.source.url}\n\n{self.content}\n"
 
 
-class WebResearcher:
-    """
-    Encapsulates web research logic using Playwright (Async) and Trafilatura.
-    """
+class TextProcessor:
+    """Handles text normalization and limiting."""
 
-    def __init__(self, region: str = "wt-wt", timeout: int = 30000, headless: bool = True):
-        self.region = region
-        self.timeout = timeout  # ms
-        self.headless = headless
-        self.semaphore = asyncio.Semaphore(5)
+    @staticmethod
+    def normalize_and_limit(text_iterator: Iterator[str]) -> str:
+        """
+        Applies limits to the text extraction:
+        - Max 2000 chars per line (append '...' if exceeded)
+        - Max 1000 lines (non-empty)
+        - Max 3000 total chars (non-empty)
+        - Removes empty lines
+        - Joins lines with <= 15 chars with the next line
+        """
+        total_chars = 0
+        lines_count = 0
+        result_parts = []
+        pending_buffer = ""
 
-    async def _search(self, query: str, max_results: int = 10) -> list[SearchResult]:
-        """Performs the search using DDGS in an executor."""
+        for chunk in text_iterator:
+            if not chunk:
+                continue
+            for line in chunk.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+
+                if pending_buffer:
+                    line = f"{pending_buffer} {line}"
+                    pending_buffer = ""
+
+                if len(line) <= MIN_JOIN_LENGTH:
+                    pending_buffer = line
+                    continue
+
+                if lines_count >= MAX_LINES:
+                    return "\n".join(result_parts)
+
+                # Truncate line
+                if len(line) > MAX_LINE_LENGTH:
+                    line = line[:MAX_LINE_LENGTH] + "..."
+
+                # Check total chars
+                if total_chars + len(line) > MAX_TOTAL_CHARS:
+                    remaining = MAX_TOTAL_CHARS - total_chars
+                    if remaining > 0:
+                        result_parts.append(line[:remaining])
+                    return "\n".join(result_parts)
+
+                result_parts.append(line)
+                total_chars += len(line)
+                lines_count += 1
+
+        # Handle any remaining content in buffer
+        if pending_buffer and lines_count < MAX_LINES:
+            if total_chars + len(pending_buffer) <= MAX_TOTAL_CHARS:
+                result_parts.append(pending_buffer)
+
+        return "\n".join(result_parts)
+
+
+class FileProcessor:
+    """Handles file content extraction."""
+
+    @staticmethod
+    async def process(file_path: str, content_type: str, url: str) -> str:
+        """Process a file (PDF, DOCX, etc.) using stream/iterator logic where possible."""
+        return await asyncio.to_thread(FileProcessor._extract, file_path, content_type, url)
+
+    @staticmethod
+    def _extract(file_path: str, content_type: str, url: str) -> str:
+        extension = (
+            mimetypes.guess_extension(content_type.split(";")[0]) or Path(url).suffix
+        ).lower()
+
+        if "pdf" in content_type.lower() or extension == ".pdf":
+            return TextProcessor.normalize_and_limit(FileProcessor._pdf_generator(file_path))
+
+        # Fallback to MarkItDown for other complex formats
+        try:
+            md = MarkItDown()
+            result = md.convert(file_path)
+            if result and result.text_content:
+                return TextProcessor.normalize_and_limit([result.text_content])
+        except Exception as e:
+            console.warning(f"MarkItDown extraction failed: {e}")
+
+        return ""
+
+    @staticmethod
+    def _pdf_generator(file_path: str) -> Iterator[str]:
+        try:
+            for page_layout in extract_pages(file_path):
+                for element in page_layout:
+                    if isinstance(element, LTTextContainer):
+                        yield element.get_text()
+        except Exception as e:
+            console.warning(f"PDF extraction warning: {e}")
+            yield ""
+
+
+class DDG:
+    """Handles search queries via DDGS."""
+
+    @staticmethod
+    async def search(
+        query: str, region: str = "wt-wt", max_results: int = 10
+    ) -> List[SearchResult]:
         from ddgs import DDGS
 
-        def _ssearch():
+        def _run_ddgs():
             with DDGS() as ddgs:
                 return list(
-                    ddgs.text(query, region=self.region, safesearch="on", max_results=max_results)
+                    ddgs.text(query, region=region, safesearch="on", max_results=max_results)
                 )
 
-        results = []
         try:
-            loop = asyncio.get_running_loop()
-            ddgs_results = await loop.run_in_executor(None, _ssearch)
-
-            if ddgs_results:
-                for res in ddgs_results:
+            results = await asyncio.to_thread(_run_ddgs)
+            parsed_results = []
+            if results:
+                for res in results:
                     link = res.get("href")
-                    title = res.get("title", "No Title")
-                    body = res.get("body", "")
                     if link:
-                        results.append(SearchResult(title=title, url=link, snippet=body))
-
-            console.info(f"Found {len(results)} valid links for query: {query}")
-            return results
+                        parsed_results.append(
+                            SearchResult(
+                                title=res.get("title", "No Title"),
+                                url=link,
+                                snippet=res.get("body", ""),
+                            )
+                        )
+            console.info(f"Found {len(parsed_results)} valid links for query: {query}")
+            return parsed_results
         except Exception as e:
             console.error(f"Search phase failed: {e}")
             return []
 
-    async def _visit_page(self, context: BrowserContext, result: SearchResult) -> CrawledPage:
-        """Internal method to visit a page with Playwright and extract content."""
+
+class BrowserCrawler:
+    """Handles page visiting and crawling logic using Playwright."""
+
+    def __init__(self, timeout: int = SEARCH_TIMEOUT):
+        self.timeout = timeout
+        self.semaphore = asyncio.Semaphore(5)
+
+    async def crawl(self, results: List[SearchResult], headless: bool = True) -> List[CrawledPage]:
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=headless)
+                context = await browser.new_context(
+                    user_agent=USER_AGENT,
+                    viewport={"width": 1280, "height": 800},
+                    accept_downloads=True,
+                )
+
+                tasks = [self._visit(context, res) for res in results]
+                pages = await asyncio.gather(*tasks)
+
+                await context.close()
+                await browser.close()
+                return pages
+        except Exception as e:
+            console.error(f"Browser execution failed: {e}")
+            return []
+
+    async def _visit(self, context: BrowserContext, result: SearchResult) -> CrawledPage:
         async with self.semaphore:
             page = await context.new_page()
+            # Setup download listener (wait up to 10s for download start)
+            download_task = asyncio.create_task(page.wait_for_event("download", timeout=10000))
+
+            content = ""
+            error_msg = None
+
             try:
-                # Intercept and block unnecessary resources
-                await page.route(
-                    "**/*",
-                    lambda route: route.abort()
-                    if route.request.resource_type in ["image", "media", "font"]
-                    else route.continue_(),
-                )
+                await self._block_resources(page)
 
-                # Retry logic for page loading: Max 3 attempts
-                for attempt in range(3):
-                    try:
-                        # 'domcontentloaded' is faster and sufficient for text extraction
-                        await page.goto(result.url, wait_until="domcontentloaded", timeout=self.timeout)
-                        break
-                    except Exception as e:
-                        if attempt == 2:
-                            raise
-                        console.warning(f"Retry {attempt + 1} for {result.url} due to: {e}")
-                        await asyncio.sleep(2)
-
-                # Extra safety: if page is still navigating, content() might fail
-                content = ""
-                for _ in range(3):
-                    try:
-                        content = await page.content()
-                        break
-                    except Exception as e:
-                        if "navigating" in str(e).lower():
-                            await asyncio.sleep(1)
-                            continue
-                        raise
-
-                # Extract text using trafilatura in a thread (CPU bound)
-                loop = asyncio.get_running_loop()
-                text = await loop.run_in_executor(
-                    None,
-                    lambda: trafilatura.extract(
-                        content,
-                        include_links=True,
-                        include_comments=False,
-                        include_tables=True,
-                        no_fallback=False,
-                    ),
-                )
-
-                if not text:
-                    return CrawledPage(
-                        source=result, content="", success=False, error="Failed to extract text content"
+                response = None
+                try:
+                    response = await page.goto(
+                        result.url, wait_until="domcontentloaded", timeout=self.timeout
                     )
+                except Exception as e:
+                    # If navigation failed, check if it was due to a download triggering
+                    if "Download is starting" not in str(e) and "net::ERR_ABORTED" not in str(e):
+                        console.warning(f"Navigation error for {result.url}: {e}")
 
-                # Simple truncation strategy
-                if len(text) > 15000:
-                    text = text[:15000] + "\n\n[...Content Truncated...]"
+                # Check for download
+                download = await self._check_download(download_task, response)
 
-                return CrawledPage(source=result, content=text, success=True)
+                if download:
+                    content = await self._handle_download(download, result.url)
+                elif response:
+                    content = await self._handle_response(page, response, result.url)
+                else:
+                    error_msg = "No response and no download detected"
 
             except Exception as e:
                 console.warning(f"Error visiting {result.url}: {e}")
-                return CrawledPage(source=result, content="", success=False, error=str(e))
+                error_msg = str(e)
             finally:
+                if not download_task.done():
+                    download_task.cancel()
                 await page.close()
 
-    async def run(self, query: str) -> list[CrawledPage]:
-        """
-        Orchestrates the full research process: Search -> Visit (Parallel).
-        """
+            if not content and not error_msg:
+                error_msg = "No content extracted"
+
+            return CrawledPage(
+                source=result,
+                content=content,
+                success=bool(content),
+                error=error_msg,
+            )
+
+    async def _block_resources(self, page: Page):
+        """Intercept and block unnecessary resources."""
+        await page.route(
+            "**/*",
+            lambda route: route.abort()
+            if route.request.resource_type in ["image", "media", "font"]
+            else route.continue_(),
+        )
+
+    async def _check_download(
+        self, download_task: asyncio.Task, response: Optional[Response]
+    ) -> Optional[Download]:
+        """Determine if a download occurred."""
+        try:
+            if download_task.done():
+                return await download_task
+            elif not response:
+                # If no response, wait briefly for download
+                return await asyncio.wait_for(download_task, timeout=1.0)
+        except Exception:
+            pass
+        return None
+
+    async def _handle_download(self, download: Download, url: str) -> str:
+        """Process a downloaded file."""
+        temp_path = await download.path()
+        suggested_filename = download.suggested_filename
+        content_type = mimetypes.guess_type(suggested_filename)[0] or "application/octet-stream"
+        ext = Path(suggested_filename).suffix
+
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
+            target_path = tf.name
+
+        shutil.copy(temp_path, target_path)
+
+        try:
+            return await FileProcessor.process(target_path, content_type, url)
+        finally:
+            Path(target_path).unlink(missing_ok=True)
+
+    async def _handle_response(self, page: Page, response: Response, url: str) -> str:
+        """Process a direct HTTP response (HTML or inline file)."""
+        content_type = response.headers.get("content-type", "").lower()
+
+        if self._is_file_content(content_type, url):
+            ext = mimetypes.guess_extension(content_type.split(";")[0]) or Path(url).suffix
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
+                temp_path = tf.name
+                tf.write(await response.body())
+            try:
+                return await FileProcessor.process(temp_path, content_type, url)
+            finally:
+                Path(temp_path).unlink(missing_ok=True)
+
+        # HTML Processing
+        html = ""
+        for _ in range(3):
+            try:
+                html = await page.content()
+                break
+            except Exception as e:
+                if "navigating" in str(e).lower():
+                    await asyncio.sleep(1)
+                    continue
+                raise
+
+        text = await asyncio.to_thread(
+            trafilatura.extract,
+            html,
+            include_links=True,
+            include_comments=False,
+            include_tables=True,
+            no_fallback=False,
+        )
+        return TextProcessor.normalize_and_limit([text or ""])
+
+    def _is_file_content(self, content_type: str, url: str) -> bool:
+        """Check if content type or URL suggests a file download."""
+        if "application/pdf" in content_type or "application/octet-stream" in content_type:
+            return True
+        if any(ext in url.lower() for ext in [".pdf", ".docx", ".pptx", ".xlsx"]):
+            return True
+        return False
+
+
+class WebResearcher:
+    """Orchestrates the full research process: Search -> Visit."""
+
+    def __init__(self, region: str = "wt-wt", timeout: int = SEARCH_TIMEOUT, headless: bool = True):
+        self.region = region
+        self.timeout = timeout
+        self.headless = headless
+
+    async def run(self, query: str) -> List[CrawledPage]:
         # 1. Search
-        search_results = await self._search(query)
+        search_results = await DDG.search(query, region=self.region)
         if not search_results:
             return []
 
         # 2. Visit
-        crawled_pages = []
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=self.headless)
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-                    viewport={"width": 1280, "height": 800},
-                )
-
-                # Execute visits in parallel
-                tasks = [self._visit_page(context, res) for res in search_results]
-                crawled_pages = await asyncio.gather(*tasks)
-
-                await context.close()
-                await browser.close()
-
-        except Exception as e:
-            console.error(f"Browser execution failed: {e}")
-
-        return crawled_pages
+        return await BrowserCrawler(timeout=self.timeout).crawl(
+            search_results, headless=self.headless
+        )
 
 
-async def _aresearch(query: str, region: str) -> list[CrawledPage]:
-    researcher = WebResearcher(region=region)
-    return await researcher.run(query)
+async def _aresearch(query: str, region: str) -> List[CrawledPage]:
+    return await WebResearcher(region=region).run(query)
+
+
+def _format_results(pages: List[CrawledPage], query: str) -> str:
+    """Combines crawled pages into a single string with global limits."""
+    raw_results = f"## Research Results for: {query}\n\n"
+    current_total = len(raw_results)
+
+    for page in pages:
+        page_str = page.to_string()
+        if current_total + len(page_str) > GLOBAL_RESULT_LIMIT:
+            remaining = GLOBAL_RESULT_LIMIT - current_total
+            if remaining > 0:
+                raw_results += page_str[:remaining] + "\n[...Total Content Limit Reached...]"
+            break
+        raw_results += page_str
+        current_total += len(page_str)
+
+    return raw_results
 
 
 def web_search(query: str, region: str = "wt-wt") -> str:
@@ -194,10 +410,7 @@ def web_search(query: str, region: str = "wt-wt") -> str:
         if not pages:
             return f"Search for '{query}' returned no results or failed."
 
-        # Combine Output
-        raw_results = f"## Research Results for: {query}\n\n"
-        raw_results += "\n".join([page.to_string() for page in pages])
-
+        raw_results = _format_results(pages, query)
         if "returned no results" in raw_results:
             return raw_results
 
@@ -222,6 +435,7 @@ CONTENT TO ANALYZE:
 EXTRACTED INFORMATION:
 """
         console.info("web_search: Generating summary...")
+        console.info(f"prompt: {prompt}")
         response = llm.query(prompt, model_type="small")
         return response
 
