@@ -36,7 +36,7 @@ def run_agent_thread(goal, max_loops, event_queue, stop_event):
         event_queue.put(Pulse(type=Event.ERROR, content=str(e), name="Fatal Error"))
 
 
-def render_event(pulse, status_container, active_status_ctx):
+def render_event(pulse, index, completed_actions, status_container, active_status_ctx):
     """Renders a single event to the container."""
     with status_container:
         if pulse.type == Event.INIT:
@@ -48,13 +48,39 @@ def render_event(pulse, status_container, active_status_ctx):
                 st.markdown(f"**思考 (步骤 {step}):**\n{pulse.content}")
 
         elif pulse.type == Event.ACTION:
-            # 创建一个新的状态上下文并记录
-            status = st.status(f"🛠️ 正在调用工具: {pulse.name}...", expanded=True)
-            status.write(f"参数: {pulse.content}")
-            active_status_ctx[0] = status
+            # 检查该动作是否在后续事件中已完成
+            final_pulse = completed_actions.get(index)
+
+            if final_pulse:
+                # 已完成的动作：直接渲染最终状态
+                if final_pulse.type == Event.OBSERVATION:
+                    label = f"✅ 工具 {pulse.name} 执行完毕 (耗时: {final_pulse.metadata.get('duration', 0):.2f}s)"
+                    state = "complete"
+                else:
+                    label = f"❌ 工具执行出错: {pulse.name}"
+                    state = "error"
+
+                # 直接以最终状态创建，且默认收起(expanded=False)历史记录以减少视觉干扰
+                with st.status(label, state=state, expanded=False):
+                    st.write(f"**参数:** {pulse.content}")
+                    if final_pulse.type == Event.OBSERVATION:
+                        st.write("**结果:**")
+                        st.write(final_pulse.content)
+                    else:
+                        st.error(f"**错误:** {final_pulse.content}")
+
+                # 标记 active_status_ctx 为 None，告诉后续的 OBSERVATION 脉冲不要再处理
+                active_status_ctx[0] = None
+            else:
+                # 正在运行的动作：保持原样
+                status = st.status(
+                    f"🛠️ 正在调用工具: {pulse.name}...", expanded=True, state="running"
+                )
+                status.write(f"参数: {pulse.content}")
+                active_status_ctx[0] = status
 
         elif pulse.type == Event.OBSERVATION:
-            # 如果有对应的工具正在运行，则更新其状态为完成
+            # 只有在 active_status_ctx[0] 存在时才处理（即这是当前正在发生的、还没被合并渲染的事件）
             if active_status_ctx[0]:
                 active_status_ctx[0].update(
                     label=f"✅ 工具 {pulse.name} 执行完毕 (耗时: {pulse.metadata.get('duration', 0):.2f}s)",
@@ -63,12 +89,7 @@ def render_event(pulse, status_container, active_status_ctx):
                 with active_status_ctx[0]:
                     st.write(pulse.content)
                 active_status_ctx[0] = None
-            else:
-                st.success(
-                    f"✅ 工具 {pulse.name} 执行完毕 (耗时: {pulse.metadata.get('duration', 0):.2f}s)"
-                )
-                with st.expander("查看执行结果"):
-                    st.write(pulse.content)
+            # 如果 active_status_ctx[0] 为 None，说明该结果已经合并到 ACTION 中渲染了，此处直接跳过
 
         elif pulse.type == Event.STEP:
             st.divider()
@@ -95,7 +116,6 @@ def run_app():
     st.set_page_config(page_title="Deep Research Agent", page_icon="🔍", layout="wide")
 
     st.title("🔍 Deep Research Agent")
-    st.markdown("基于大模型的深度自主调研工具")
 
     # 侧边栏配置
     with st.sidebar:
@@ -134,7 +154,7 @@ def run_app():
 
         st.slider("最大循环次数", min_value=1, max_value=20, value=10, key="max_loops_slider")
 
-        st.info("指挥模型负责决策，总结模型负责处理长文本和搜索提取。")
+        st.info("指挥模型负责决策，总结模型负责处理搜索提取。")
 
     # 初始化状态
     if "running" not in st.session_state:
@@ -153,7 +173,6 @@ def run_app():
     # 主界面逻辑
     st.text_input(
         "请输入您的调研目标:",
-        placeholder="例如：2025年全球生成式AI market development trend research",
         key="goal_input",
     )
 
@@ -198,9 +217,6 @@ def run_app():
             st.session_state.research_thread is None
             or not st.session_state.research_thread.is_alive()
         ):
-            # 只有在事件列表为空（说明是新任务）时才启动，避免刷新导致的重复启动
-            # 但这里我们依赖 events 是否为空来判断是否已启动过。
-            # 如果线程死掉了但 running 还是 True（比如刚结束），应该在下面处理。
             if len(st.session_state.events) == 0:
                 t = threading.Thread(
                     target=run_agent_thread,
@@ -227,10 +243,20 @@ def run_app():
                 st.session_state.report = pulse.content
                 st.session_state.running = False
 
+        # 预处理事件列表：找出已完成的 ACTION 及其对应的结束事件（OBSERVATION 或 ERROR）
+        completed_actions = {}  # index of ACTION -> final Pulse (OBSERVATION/ERROR)
+        last_action_idx = -1
+        for i, pulse in enumerate(st.session_state.events):
+            if pulse.type == Event.ACTION:
+                last_action_idx = i
+            elif pulse.type in [Event.OBSERVATION, Event.ERROR] and last_action_idx != -1:
+                completed_actions[last_action_idx] = pulse
+                last_action_idx = -1
+
         # 渲染所有事件（回放）
         active_status_ctx = [None]
-        for pulse in st.session_state.events:
-            render_event(pulse, status_container, active_status_ctx)
+        for i, pulse in enumerate(st.session_state.events):
+            render_event(pulse, i, completed_actions, status_container, active_status_ctx)
 
         # 自动刷新以获取新事件
         if st.session_state.running:
