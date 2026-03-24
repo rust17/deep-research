@@ -354,34 +354,10 @@ class BrowserCrawler:
         return False
 
 
-class WebResearcher:
-    """Orchestrates the full research process: Search -> Visit."""
-
-    def __init__(self, region: str = "wt-wt", timeout: int = SEARCH_TIMEOUT, headless: bool = True):
-        self.region = region
-        self.timeout = timeout
-        self.headless = headless
-
-    async def run(self, query: str) -> List[CrawledPage]:
-        # 1. Search
-        search_results = await DDG.search(query, region=self.region)
-        if not search_results:
-            return []
-
-        # 2. Visit
-        return await BrowserCrawler(timeout=self.timeout).crawl(
-            search_results, headless=self.headless
-        )
-
-
-async def _aresearch(query: str, region: str) -> List[CrawledPage]:
-    return await WebResearcher(region=region).run(query)
-
-
-def _format_results(pages: List[CrawledPage], query: str) -> str:
+def _format_results(pages: List[CrawledPage]) -> str:
     """Combines crawled pages into a single string with global limits."""
-    raw_results = f"## Research Results for: {query}\n\n"
-    current_total = len(raw_results)
+    raw_results = ""
+    current_total = 0
 
     for page in pages:
         page_str = page.to_string()
@@ -396,31 +372,52 @@ def _format_results(pages: List[CrawledPage], query: str) -> str:
     return raw_results
 
 
-def web_search(query: str, region: str = "wt-wt") -> str:
+def search(query: str, region: str = "wt-wt") -> dict:
     """
-    Performs a web search and returns a generated summary with sources.
-    Uses async WebResearcher internally.
+    Search the internet for information. Returns a list of search results with titles, URLs, and snippets.
     """
     try:
-        console.info(f"web_search: Searching for '{query}'...")
+        console.info(f"search: Searching for '{query}'...")
+        results = asyncio.run(DDG.search(query, region=region))
 
-        # Run Async Pipeline via asyncio.run
-        pages = asyncio.run(_aresearch(query, region))
+        if not results:
+            return {"type": "text", "text": f"Search for '{query}' returned no results."}
 
-        if not pages:
-            return f"Search for '{query}' returned no results or failed."
+        formatted_results = []
+        for i, res in enumerate(results):
+            formatted_results.append(f"[{i}] {res.title}\nURL: {res.url}\nSnippet: {res.snippet}\n")
 
-        raw_results = _format_results(pages, query)
-        if "returned no results" in raw_results:
-            return raw_results
+        content = f"Search results for '{query}':\n\n" + "\n".join(formatted_results)
+        return {"type": "text", "text": content}
 
-        # Summarize with LLM (Sync)
+    except Exception as e:
+        console.error(f"search failed: {e}")
+        return {"type": "text", "text": f"Error performing search: {str(e)}"}
+
+
+def visit(url: str, goal: str = "Extract key information") -> dict:
+    """
+    Visit a specific URL and return its summarized content.
+    """
+    try:
+        console.info(f"visit: Visiting {url}...")
+        search_result = SearchResult(title="Target Page", url=url)
+
+        pages = asyncio.run(BrowserCrawler.crawl([search_result]))
+
+        if not pages or not pages[0].success:
+            error = pages[0].error if pages else "Unknown error"
+            return {"type": "text", "text": f"Failed to visit {url}: {error}"}
+
+        raw_results = _format_results(pages)
+
+        # Summarize with LLM
         llm = LLMClient()
         prompt = f"""
 You are given a piece of content and the requirement of information to extract. Your task is to extract the information specifically requested. Be precise and focus exclusively on the requested information.
 
-INFORMATION TO EXTRACT:
-{query}
+INFORMATION TO EXTRACT / GOAL:
+{goal}
 
 INSTRUCTIONS:
 1. Extract the information relevant to the focus above.
@@ -434,11 +431,10 @@ CONTENT TO ANALYZE:
 
 EXTRACTED INFORMATION:
 """
-        console.info("web_search: Generating summary...")
-        console.info(f"prompt: {prompt}")
+        console.info(f"visit: Generating summary for {url}...")
         response = llm.query(prompt, model_type="small")
-        return response
+        return {"type": "text", "text": response}
 
     except Exception as e:
-        console.error(f"web_search failed: {e}")
-        return f"Error performing web search: {str(e)}"
+        console.error(f"visit failed: {e}")
+        return {"type": "text", "text": f"Error visiting URL: {str(e)}"}

@@ -1,18 +1,19 @@
 import json
 import threading
 from datetime import datetime
-from typing import Any
+from typing import Any, List, Dict
 
 from .llm_client import LLMClient
 from .prompt import REPORT_SUMMARIZE_PROMPT
 from .stream_handler import Event, Pulse, StreamHandler
 from .task_logger import TaskLogger
 from .tool_manager import ToolRegistry
-from .tools.search import web_search
+from .tools.search import search, visit
 
 # 定义 Orchestrator 专用的 Prompt
 ORCHESTRATOR_SYSTEM_PROMPT = """You are a deep research assistant powered by a "Think-Act-Observe" loop.
 Your goal is to answer the user's request comprehensively by gathering information and verifying facts.
+You MUST detect the language of the user's input and response in that same language.
 
 ### Core Instructions
 1. **Think**: Before taking any action, analyze the current state. What do you know? What is missing? What is the best next step?
@@ -25,15 +26,17 @@ Your goal is to answer the user's request comprehensively by gathering informati
 - **Efficiency**: If you have enough information, stop and provide the final answer.
 
 ### Output Format
-You MUST strictly output a JSON object in the following format:
-{
+You MUST strictly output a JSON object in a SINGLE LINE (no line breaks within the JSON string):
+{{
     "thought": "Your reasoning process. Be specific about what you are looking for and why.",
     "action": "Name of the tool to use. Use 'finish' when you have the final answer.",
-    "parameters": {
-        // Parameters for the tool.
-        // If action is 'finish', use: {"answer": "Your final comprehensive report..."}
-    }
-}
+    "parameters": {{
+        // Parameters for the tool. If action is 'finish', leave it blank.
+    }}
+}}
+
+### Available Tools
+{tools_schema}
 """
 
 
@@ -58,8 +61,21 @@ class Orchestrator:
         self._register_tools()
 
         # Context Management
-        self.history: list[dict[str, Any]] = []
-        self.long_term_memory: str = ""  # Summary of past events
+        self.message_history: List[Dict[str, str]] = []
+        self._init_history()
+
+    def _init_history(self):
+        """Initialize message history with system prompt and user goal."""
+        system_content = ORCHESTRATOR_SYSTEM_PROMPT.format(
+            tools_schema=json.dumps(self.tool_registry.get_tools_schema(), ensure_ascii=False)
+        )
+
+        self.message_history.append({"role": "system", "content": system_content})
+
+        user_init_msg = (
+            f"Current Date: {datetime.now().strftime('%Y-%m-%d')}\nUser Goal: {self.user_goal}"
+        )
+        self.message_history.append({"role": "user", "content": user_init_msg})
 
     def _emit(
         self, event: Event, content: Any = None, name: str = "", metadata: dict = None
@@ -76,16 +92,40 @@ class Orchestrator:
         return pulse
 
     def _register_tools(self):
-        # Register web_search
+        # Register search
         self.tool_registry.register_function(
-            name="web_search",
-            description="Search the internet for information. Returns a summary of findings.",
+            name="search",
+            description="Search the internet for information. Returns a list of search results with titles, URLs, and snippets.",
             parameters={
                 "type": "object",
-                "properties": {"query": {"type": "string", "description": "The search query."}},
+                "properties": {
+                    "query": {"type": "string", "description": "The search query."},
+                    "region": {
+                        "type": "string",
+                        "description": "Region code (e.g., 'wt-wt', 'us-en').",
+                        "default": "wt-wt",
+                    },
+                },
                 "required": ["query"],
             },
-        )(web_search)
+        )(search)
+
+        # Register visit
+        self.tool_registry.register_function(
+            name="visit",
+            description="Visit a specific URL and return its summarized content.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to visit."},
+                    "goal": {
+                        "type": "string",
+                        "description": "The specific information you want to extract from this page.",
+                    },
+                },
+                "required": ["url", "goal"],
+            },
+        )(visit)
 
     def run(self) -> str:
         """Main execution loop."""
@@ -101,19 +141,29 @@ class Orchestrator:
 
             loop_count += 1
 
-            # 1. Build Context & Prompt
-            prompt = self._build_prompt()
-
-            # 2. LLM Call (Think)
+            # 1. LLM Call (Reasoning)
             try:
-                response = self._get_llm_response(prompt)
+                response = self.llm.query_json(self.message_history)
             except Exception as e:
+                loop_count -= 1
                 msg = f"LLM Error: {e}"
                 self._emit(Event.ERROR, msg)
                 self.logger.step(Event.ERROR, "LLM Failure", msg)
+                # Attempt to recover by adding error message to history
+                self.message_history.append(
+                    {
+                        "role": "user",
+                        "content": f"Error occurred: {msg}. Please retry or change strategy.",
+                    }
+                )
                 continue
 
-            # 3. Parse Response
+            # Add assistant response to history
+            self.message_history.append(
+                {"role": "assistant", "content": json.dumps(response, ensure_ascii=False)}
+            )
+
+            # 2. Parse Response
             thought = response.get("thought", "")
             action = response.get("action", "")
             params = response.get("parameters", {})
@@ -132,22 +182,30 @@ class Orchestrator:
                 self.logger.finish(result=final_report)
                 return final_report
 
-            # 4. Execute Tool (Act)
-            result = self._execute_tool(action, params)
+            # 3. Execute Tool (Act)
+            result_data = self._execute_tool(action, params)
 
-            # 5. Observe & Update History
-            pulse = self._emit(
+            # 4. Observe & Update History
+            self.message_history.append(
+                {
+                    "role": "tool",
+                    "content": json.dumps(result_data.get("text", ""), ensure_ascii=False),
+                }
+            )
+
+            self._emit(
                 Event.STEP,
                 content={
                     "thought": thought,
                     "action": action,
                     "parameters": params,
-                    "observation": result,
+                    "observation": result_data.get("text", "")
+                    if isinstance(result_data, dict)
+                    else str(result_data),
                 },
                 name=f"Step {loop_count}",
                 metadata={"step": loop_count},
             )
-            self.history.append(pulse.to_dict())
 
             self._manage_context()
 
@@ -158,72 +216,8 @@ class Orchestrator:
         self._emit(Event.FINISH, final_report)
         return final_report
 
-    def _build_prompt(self) -> str:
-        """Constructs the prompt with history."""
-        # Get Tool Definitions
-        tools_schema = json.dumps(self.tool_registry.get_tools_schema(), indent=2)
-
-        # Format History
-        history_str = ""
-        for entry in self.history:
-            item = entry["content"]
-            step_num = entry["metadata"].get("step", "?")
-            history_str += f"\nStep {step_num}:\n"
-            history_str += f"Thought: {item['thought']}\n"
-            history_str += f"Action: {item['action']}({json.dumps(item['parameters'])})\n"
-            # Truncate observation
-            obs_preview = str(item["observation"])
-            history_str += f"Observation: {obs_preview}...\n"
-
-        # Memory Section
-        memory_section = ""
-        if self.long_term_memory:
-            memory_section = f"\n### Long-term Memory (Summarized Past)\n{self.long_term_memory}\n"
-
-        prompt = f"""
-{ORCHESTRATOR_SYSTEM_PROMPT}
-
-Current Date: {datetime.now().strftime("%Y-%m-%d")}
-User Goal: {self.user_goal}
-
-### Available Tools
-{tools_schema}
-{memory_section}
-### Execution History
-{history_str}
-
-Please provide your next step in JSON format.
-"""
-        return prompt
-
-    def _get_llm_response(self, prompt: str) -> dict[str, Any]:
-        """Wrapper to handle JSON parsing and retries."""
-        attempts = 0
-        max_attempts = 3
-
-        while attempts < max_attempts:
-            try:
-                # Assuming llm.query_json handles basic JSON cleaning
-                return self.llm.query_json(prompt)
-            except Exception as e:
-                attempts += 1
-                self._emit(
-                    Event.WARN,
-                    f"JSON parsing failed ({attempts}/{max_attempts}). Retrying...",
-                )
-                if attempts == max_attempts:
-                    raise e
-        return {}
-
-    def _execute_tool(self, action: str, params: dict[str, Any]) -> str:
+    def _execute_tool(self, action: str, params: dict[str, Any]) -> dict:
         """Executes the tool and logs the result."""
-        # Self-Correction: Check for duplicates
-        if self._is_duplicate_action(action, params):
-            return (
-                "Error: You have already executed this exact action with these parameters. "
-                "Please try a different query or strategy."
-            )
-
         try:
             self._emit(Event.ACTION, params, name=action)
             self.logger.step(Event.ACTION, action, params)
@@ -240,25 +234,16 @@ Please provide your next step in JSON format.
             error_msg = f"Tool execution failed: {str(e)}"
             self._emit(Event.ERROR, error_msg, name=action)
             self.logger.step(Event.ERROR, action, error_msg)
-            return error_msg
-
-    def _is_duplicate_action(self, action: str, params: dict[str, Any]) -> bool:
-        """Check if this action has been performed recently."""
-        for entry in self.history:
-            item = entry["content"]
-            if item["action"] == action and item["parameters"] == params:
-                self._emit(Event.WARN, f"Detected duplicate action: {action} {params}")
-                return True
-        return False
+            return {"type": "text", "text": error_msg}
 
     def _manage_context(self):
         """
         Context Management:
-        If the current context (prompt) size approaches the model's limit,
-        summarize the oldest steps and update long_term_memory.
+        If the current context size approaches the model's limit,
+        compress history while keeping essential messages.
         """
-        current_prompt = self._build_prompt()
-        token_count = self.llm.count_tokens(current_prompt)
+        history_str = json.dumps(self.message_history)
+        token_count = self.llm.count_tokens(history_str)
         limit = self.llm.get_context_limit()
         threshold = int(limit * 0.8)
 
@@ -268,55 +253,43 @@ Please provide your next step in JSON format.
                 f"Context size ({token_count} tokens) exceeds threshold ({threshold}). Compressing...",
             )
 
-            # Keep the most recent 2 steps, summarize the rest
-            steps_to_summarize = self.history[:-2]
-            self.history = self.history[-2:]
+            # Keep system prompt and user goal (first 2 messages)
+            # Keep the most recent 4 messages (2 tool calls and 2 results)
+            system_and_goal = self.message_history[:2]
+            recent_messages = self.message_history[-4:]
+            to_summarize = self.message_history[2:-4]
 
             summary_prompt = f"""
-            Please summarize the following research steps into a concise paragraph.
-            Focus on the key findings and actions taken.
+            Please summarize the following research steps into a concise summary.
+            Focus on the key findings and actions taken so far.
 
-            Current Long-term Memory:
-            {self.long_term_memory}
-
-            New Steps to Summarize:
-            {json.dumps(steps_to_summarize, indent=2)}
+            RESEARCH LOG:
+            {json.dumps(to_summarize, indent=2)}
             """
 
             try:
-                self._emit(Event.INFO, "Compressing context and updating long-term memory...")
-                new_summary = self.llm.query(summary_prompt)
-                self.long_term_memory = new_summary
+                self._emit(Event.INFO, "Compressing context...")
+                summary = self.llm.query(summary_prompt)
+
+                new_history = system_and_goal
+                new_history.append(
+                    {"role": "user", "content": f"Summary of previous steps: {summary}"}
+                )
+                new_history.extend(recent_messages)
+
+                self.message_history = new_history
                 self._emit(Event.INFO, "Context compressed successfully.")
             except Exception as e:
                 self._emit(Event.ERROR, f"Context compression failed: {e}")
 
     def _generate_final_report(self, final_answer_hint: str = "") -> str:
-        """Force a final synthesis if loop ends or agent finishes."""
-        # Format History for synthesis
-        history_str = ""
-        for entry in self.history:
-            item = entry["content"]
-            step_num = entry["metadata"].get("step", "?")
-            history_str += f"\nStep {step_num}:\n"
-            history_str += f"Thought: {item['thought']}\n"
-            history_str += f"Action: {item['action']}({json.dumps(item['parameters'])})\n"
-            # Include more of the observation for the final report
-            obs_preview = str(item["observation"])
-            history_str += f"Observation: {obs_preview}\n"
-
-        if final_answer_hint:
-            history_str += f"\nAgent's preliminary conclusion: {final_answer_hint}\n"
-
-        # Memory Section
-        memory_section = ""
-        if self.long_term_memory:
-            memory_section = f"\n### Long-term Memory (Summarized Past)\n{self.long_term_memory}\n"
+        """Force a final synthesis based on message history."""
+        # from .logs import console
+        # console.info(self.message_history)
 
         prompt = f"""
 ### Execution History
-{history_str}
-{memory_section}
+{self.message_history}
 
 {REPORT_SUMMARIZE_PROMPT.format(user_goal=self.user_goal)}
 """

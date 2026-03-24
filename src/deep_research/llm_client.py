@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any
+from typing import Any, List, Dict
 
 import tiktoken
 from dotenv import load_dotenv
@@ -38,24 +38,28 @@ class LLMClient:
         """Returns the context limit for the specified model type."""
         return self.large_limit
 
-    def query(self, prompt: str, model_type: str = "large") -> str:
+    def query(self, prompt: str | List[Dict[str, str]], model_type: str = "large") -> str:
         """普通文本查询"""
         model = self.large_model if model_type == "large" else self.small_model
+        messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         try:
             response = self.client.chat.completions.create(
-                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.7
+                model=model, messages=messages, temperature=0.7
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
             console.error(f"LLM Query Failed ({model}): {e}")
             raise
 
-    def query_json(self, prompt: str, model_type: str = "large") -> dict[str, Any]:
+    def query_json(
+        self, prompt: str | List[Dict[str, str]], model_type: str = "large"
+    ) -> dict[str, Any]:
         """强制 JSON 输出查询"""
         model = self.large_model if model_type == "large" else self.small_model
+        messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         try:
             response = self.client.chat.completions.create(
-                model=model, messages=[{"role": "user", "content": prompt}], temperature=0.5
+                model=model, messages=messages, temperature=0.5
             )
             content = response.choices[0].message.content.strip()
 
@@ -69,8 +73,7 @@ class LLMClient:
 
             return json.loads(content)
         except json.JSONDecodeError:
-            console.error(f"Failed to decode JSON from LLM response: {content}")
-            # 简单的重试或回退逻辑可以在这里添加，目前直接抛出
+            console.error(f"Failed to decode JSON from LLM response: {response}")
             raise
         except Exception as e:
             console.error(f"LLM JSON Query Failed: {e}")
