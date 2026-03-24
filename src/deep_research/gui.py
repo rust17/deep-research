@@ -133,14 +133,14 @@ def run_app():
 
         large_model = st.text_input(
             "Large Model (指挥)",
-            value=os.getenv("LARGE_MODEL_NAME", "Qwen/Qwen3-235B-A22B-Instruct-2507"),
+            value=os.getenv("LARGE_MODEL_NAME", "Qwen/Qwen3.5-122B-A10B"),
         )
         if large_model:
             os.environ["LARGE_MODEL_NAME"] = large_model
 
         small_model = st.text_input(
             "Small Model (总结)",
-            value=os.getenv("SMALL_MODEL_NAME", "Qwen/Qwen3-30B-A3B-Instruct-2507"),
+            value=os.getenv("SMALL_MODEL_NAME", "Qwen/Qwen3.5-122B-A10B"),
         )
         if small_model:
             os.environ["SMALL_MODEL_NAME"] = small_model
