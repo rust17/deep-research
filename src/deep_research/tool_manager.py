@@ -16,6 +16,46 @@ class Tool:
 class ToolRegistry:
     def __init__(self):
         self.tools: dict[str, Tool] = {}
+        self._register_default_tools()
+
+    def _register_default_tools(self):
+        """Register default tools (search, visit)."""
+        from .tools.search import search, visit
+
+        # Register search
+        self.register_function(
+            name="search",
+            description="Search the internet for information. Returns a list of search results with titles, URLs, and snippets.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query."},
+                    "region": {
+                        "type": "string",
+                        "description": "Region code (e.g., 'wt-wt', 'us-en').",
+                        "default": "wt-wt",
+                    },
+                },
+                "required": ["query"],
+            },
+        )(search)
+
+        # Register visit
+        self.register_function(
+            name="visit",
+            description="Visit a specific URL and return its summarized content.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to visit."},
+                    "goal": {
+                        "type": "string",
+                        "description": "The specific information you want to extract from this page.",
+                    },
+                },
+                "required": ["url", "goal"],
+            },
+        )(visit)
 
     def register(self, tool: Tool):
         """Register a tool instance."""

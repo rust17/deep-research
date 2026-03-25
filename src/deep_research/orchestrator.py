@@ -8,7 +8,7 @@ from .prompt import REPORT_SUMMARIZE_PROMPT
 from .stream_handler import Event, Pulse, StreamHandler
 from .task_logger import TaskLogger
 from .tool_manager import ToolRegistry
-from .tools.search import search, visit
+
 
 # 定义 Orchestrator 专用的 Prompt
 ORCHESTRATOR_SYSTEM_PROMPT = """You are a deep research assistant powered by a "Think-Act-Observe" loop.
@@ -57,9 +57,6 @@ class Orchestrator:
         self.logger = TaskLogger(goal=user_goal)
         self.tool_registry = ToolRegistry()
 
-        # Register Tools
-        self._register_tools()
-
         # Context Management
         self.message_history: List[Dict[str, str]] = []
         self._init_history()
@@ -97,42 +94,6 @@ class Orchestrator:
             self.logger.step(event, name or event.value, content)
 
         return pulse
-
-    def _register_tools(self):
-        # Register search
-        self.tool_registry.register_function(
-            name="search",
-            description="Search the internet for information. Returns a list of search results with titles, URLs, and snippets.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "The search query."},
-                    "region": {
-                        "type": "string",
-                        "description": "Region code (e.g., 'wt-wt', 'us-en').",
-                        "default": "wt-wt",
-                    },
-                },
-                "required": ["query"],
-            },
-        )(search)
-
-        # Register visit
-        self.tool_registry.register_function(
-            name="visit",
-            description="Visit a specific URL and return its summarized content.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "The URL to visit."},
-                    "goal": {
-                        "type": "string",
-                        "description": "The specific information you want to extract from this page.",
-                    },
-                },
-                "required": ["url", "goal"],
-            },
-        )(visit)
 
     def run(self) -> str:
         """Main execution loop."""
