@@ -80,7 +80,6 @@ class Orchestrator:
     def _emit(
         self, event: Event, content: Any = None, name: str = "", metadata: dict = None
     ) -> Pulse:
-        """创建脉冲并发送，隐藏 Pulse 构建细节。"""
         pulse = Pulse(
             type=event,
             content=content,
@@ -89,6 +88,14 @@ class Orchestrator:
         )
         if self.stream_handler:
             self.stream_handler.emit(pulse)
+
+        # 自动同步到 TaskLogger
+        if event == Event.FINISH:
+            self.logger.finish(result=content)
+        else:
+            # 使用 name 作为步骤标题，如果没有则使用 event 的值
+            self.logger.step(event, name or event.value, content)
+
         return pulse
 
     def _register_tools(self):
@@ -147,8 +154,7 @@ class Orchestrator:
             except Exception as e:
                 loop_count -= 1
                 msg = f"LLM Error: {e}"
-                self._emit(Event.ERROR, msg)
-                self.logger.step(Event.ERROR, "LLM Failure", msg)
+                self._emit(Event.ERROR, msg, name="LLM Failure")
                 # Attempt to recover by adding error message to history
                 self.message_history.append(
                     {
@@ -169,17 +175,14 @@ class Orchestrator:
             params = response.get("parameters", {})
 
             # Log Thought
-            self._emit(Event.THOUGHT, thought, metadata={"step": loop_count})
-            self.logger.step(Event.THOUGHT, "Reasoning", thought)
+            self._emit(Event.THOUGHT, thought, name="Reasoning", metadata={"step": loop_count})
 
             # Check for Finish
             if action == "finish":
                 final_answer_hint = params.get("answer", "")
                 self._emit(Event.INFO, "Agent decided to finish. Synthesizing final report...")
                 final_report = self._generate_final_report(final_answer_hint)
-                self._emit(Event.FINISH, final_report)
-                self.logger.step(Event.FINISH, "Completion", final_report)
-                self.logger.finish(result=final_report)
+                self._emit(Event.FINISH, final_report, name="Completion")
                 return final_report
 
             # 3. Execute Tool (Act)
@@ -220,20 +223,17 @@ class Orchestrator:
         """Executes the tool and logs the result."""
         try:
             self._emit(Event.ACTION, params, name=action)
-            self.logger.step(Event.ACTION, action, params)
 
             start_time = datetime.now()
             result = self.tool_registry.execute(action, params)
             duration = (datetime.now() - start_time).total_seconds()
 
             self._emit(Event.OBSERVATION, result, name=action, metadata={"duration": duration})
-            self.logger.step(Event.OBSERVATION, action, result)
 
             return result
         except Exception as e:
             error_msg = f"Tool execution failed: {str(e)}"
             self._emit(Event.ERROR, error_msg, name=action)
-            self.logger.step(Event.ERROR, action, error_msg)
             return {"type": "text", "text": error_msg}
 
     def _manage_context(self):
