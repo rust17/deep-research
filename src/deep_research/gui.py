@@ -131,30 +131,16 @@ def run_app():
         if base_url:
             os.environ["OPENAI_BASE_URL"] = base_url
 
-        large_model = st.text_input(
-            "Large Model (指挥)",
-            value=os.getenv("LARGE_MODEL_NAME", "Qwen/Qwen3.5-122B-A10B"),
+        model_name = st.text_input(
+            "模型名称 (Model Name)",
+            value=os.getenv("MODEL_NAME", "Qwen/Qwen3.5-122B-A10B"),
         )
-        if large_model:
-            os.environ["LARGE_MODEL_NAME"] = large_model
-
-        small_model = st.text_input(
-            "Small Model (总结)",
-            value=os.getenv("SMALL_MODEL_NAME", "Qwen/Qwen3.5-122B-A10B"),
-        )
-        if small_model:
-            os.environ["SMALL_MODEL_NAME"] = small_model
-
-        context_limit = st.text_input(
-            "指挥模型的最大上下文",
-            value=os.getenv("LARGE_MODEL_CONTEXT_LIMIT", 262144),
-        )
-        if context_limit:
-            os.environ["LARGE_MODEL_CONTEXT_LIMIT"] = context_limit
+        if model_name:
+            os.environ["MODEL_NAME"] = model_name
 
         st.slider("最大循环次数", min_value=1, max_value=20, value=10, key="max_loops_slider")
 
-        st.info("指挥模型负责决策，总结模型负责处理搜索提取。")
+        st.info("配置模型进行深度调研。")
 
     # 初始化状态
     if "running" not in st.session_state:

@@ -20,48 +20,50 @@ class LLMClient:
             console.warning("OPENAI_API_KEY not found in environment variables.")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.large_model = os.getenv("LARGE_MODEL_NAME", "gpt-4o")
-        self.small_model = os.getenv("SMALL_MODEL_NAME", "gpt-4o-mini")
-        self.large_limit = int(os.getenv("LARGE_MODEL_CONTEXT_LIMIT", "128000"))
+        self.model = os.getenv("MODEL_NAME", "gpt-4o")
+        self.limit = 262144
 
         # Initialize encoders
         try:
-            self.large_encoding = tiktoken.encoding_for_model(self.large_model)
+            self.encoding = tiktoken.encoding_for_model(self.model)
         except KeyError:
-            self.large_encoding = tiktoken.get_encoding("cl100k_base")
+            self.encoding = tiktoken.get_encoding("cl100k_base")
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in a text string."""
-        return len(self.large_encoding.encode(text))
+        return len(self.encoding.encode(text))
 
     def get_context_limit(self) -> int:
-        """Returns the context limit for the specified model type."""
-        return self.large_limit
+        """Returns the context limit for the model."""
+        return self.limit
 
-    def query(self, prompt: str | List[Dict[str, str]], model_type: str = "large") -> str:
+    def query(self, prompt: str | List[Dict[str, str]], temperature: float = 0.7) -> str:
         """普通文本查询"""
-        model = self.large_model if model_type == "large" else self.small_model
         messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         try:
             response = self.client.chat.completions.create(
-                model=model, messages=messages, temperature=0.7
+                model=self.model, messages=messages, temperature=temperature
             )
-            return response.choices[0].message.content.strip()
+            if not response.choices:
+                console.error(f"LLM returned no choices. Full response: {response}")
+                raise ValueError("LLM returned no choices")
+
+            content = response.choices[0].message.content
+            if content is None:
+                console.error(f"LLM returned None for content. Full response: {response}")
+                raise ValueError("LLM returned empty content")
+
+            return content.strip()
         except Exception as e:
-            console.error(f"LLM Query Failed ({model}): {e}")
+            console.error(f"LLM Query Failed ({self.model}): {e}")
             raise
 
-    def query_json(
-        self, prompt: str | List[Dict[str, str]], model_type: str = "large"
-    ) -> dict[str, Any]:
+    def query_json(self, prompt: str | List[Dict[str, str]]) -> dict[str, Any]:
         """强制 JSON 输出查询"""
-        model = self.large_model if model_type == "large" else self.small_model
-        messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
+        raw_content = ""
         try:
-            response = self.client.chat.completions.create(
-                model=model, messages=messages, temperature=0.5
-            )
-            content = response.choices[0].message.content.strip()
+            raw_content = self.query(prompt, temperature=0.5)
+            content = raw_content
 
             # 清洗内容：移除 Markdown 代码块标记
             if content.startswith("```"):
@@ -73,7 +75,7 @@ class LLMClient:
 
             return json.loads(content)
         except json.JSONDecodeError:
-            console.error(f"Failed to decode JSON from LLM response: {response}")
+            console.error(f"Failed to decode JSON. Raw response content: {repr(raw_content)}")
             raise
         except Exception as e:
             console.error(f"LLM JSON Query Failed: {e}")
