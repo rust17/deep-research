@@ -32,9 +32,6 @@ To run this agent, you need to configure the following environment variables in 
 # Install dependencies
 uv sync
 
-# Run the CLI
-uv run deep-research "Your research goal"
-
-# Run the GUI
-uv run streamlit run src/deep_research/gui.py
+# Run the app
+uv run dr
 ```

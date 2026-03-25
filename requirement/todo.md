@@ -26,3 +26,4 @@ refactor:
 ---
 refactor:
     - [ ] 整合 message_history 和 _emit
+    - [x] 取消 cli 模式，只有 gui 一个入口

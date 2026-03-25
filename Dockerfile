@@ -40,4 +40,4 @@ EXPOSE 7860
 
 # 启动命令
 
-CMD ["uv", "run", "dr-gui", "--server.port=7860", "--server.address=0.0.0.0"]
+CMD ["uv", "run", "dr", "--server.port=7860", "--server.address=0.0.0.0"]

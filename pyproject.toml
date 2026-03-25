@@ -22,8 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dr = "deep_research.cli:main"
-dr-gui = "deep_research.gui:main"
+dr = "deep_research.gui:main"
 
 [build-system]
 requires = ["hatchling"]
