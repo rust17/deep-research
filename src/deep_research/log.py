@@ -63,7 +63,9 @@ class Log(RichConsole):
         """
 
         def __init__(self, goal: str, log_dir: str = "tasks_log"):
-            self.task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+            self.task_id = (
+                f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+            )
             self.goal = goal
             self.log_dir = log_dir
             self.start_time = time.time()

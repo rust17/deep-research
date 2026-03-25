@@ -2,6 +2,7 @@ import asyncio
 from typing import List
 
 from ..log import log
+from ._base import SearchResult
 
 
 class DDG:
