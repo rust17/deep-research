@@ -20,7 +20,7 @@ class ToolRegistry:
 
     def _register_default_tools(self):
         """Register default tools (search, visit)."""
-        from .tools.search import search, visit
+        from .tools import search, visit
 
         # Register search
         self.register_function(

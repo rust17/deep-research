@@ -46,3 +46,21 @@ You MUST strictly output a JSON object in a SINGLE LINE (no line breaks within t
 ### Available Tools
 {tools_schema}
 """
+
+VISIT_SUMMARIZE_PROMPT = """You are given a piece of content and the requirement of information to extract. Your task is to extract the information specifically requested. Be precise and focus exclusively on the requested information.
+
+INFORMATION TO EXTRACT / GOAL:
+{goal}
+
+INSTRUCTIONS:
+1. Extract the information relevant to the focus above.
+2. If the exact information is not found, extract the most closely related details.
+3. Be specific and include exact details when available.
+4. Clearly organize the extracted information for easy understanding.
+5. Do not include general summaries or unrelated content.
+
+CONTENT TO ANALYZE:
+{content}
+
+EXTRACTED INFORMATION:
+"""
