@@ -199,7 +199,8 @@ def visit(url: str, goal: str = "Extract key information") -> dict:
         log.info(f"visit: Visiting {url}...")
         search_result = SearchResult(title="Target Page", url=url)
 
-        pages = asyncio.run(BrowserCrawler.crawl([search_result]))
+        crawler = BrowserCrawler()
+        pages = asyncio.run(crawler.crawl([search_result]))
 
         if not pages or not pages[0].success:
             error = pages[0].error if pages else "Unknown error"
@@ -210,7 +211,7 @@ def visit(url: str, goal: str = "Extract key information") -> dict:
         llm = LLMClient()
         prompt = VISIT_SUMMARIZE_PROMPT.format(goal=goal, content=raw_results)
         log.info(f"visit: Generating summary for {url}...")
-        response = llm.query(prompt, model_type="small")
+        response = llm.query(prompt)
         return {"type": "text", "text": response}
 
     except Exception as e:
