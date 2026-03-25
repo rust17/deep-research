@@ -6,7 +6,7 @@ from typing import Any, List, Dict
 from .llm_client import LLMClient
 from .prompt import ORCHESTRATOR_SYSTEM_PROMPT, REPORT_SUMMARIZE_PROMPT
 from .stream_handler import Event, Pulse, StreamHandler
-from .task_logger import TaskLogger
+from .log import log
 from .tool_manager import ToolRegistry
 
 
@@ -24,7 +24,6 @@ class Orchestrator:
         self.stop_event = stop_event
 
         self.llm = LLMClient()
-        self.logger = TaskLogger(goal=user_goal)
         self.tool_registry = ToolRegistry()
 
         # Context Management
@@ -56,12 +55,12 @@ class Orchestrator:
         if self.stream_handler:
             self.stream_handler.emit(pulse)
 
-        # 自动同步到 TaskLogger
+        # 自动同步到 Task
         if event == Event.FINISH:
-            self.logger.finish(result=content)
+            log.finish(result=content)
         else:
             # 使用 name 作为步骤标题，如果没有则使用 event 的值
-            self.logger.step(event, name or event.value, content)
+            log.step(event, name or event.value, content, metadata=metadata)
 
         return pulse
 

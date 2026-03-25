@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .logs import console
+from .log import log
 
 
 @dataclass
@@ -60,9 +60,9 @@ class ToolRegistry:
     def register(self, tool: Tool):
         """Register a tool instance."""
         if tool.name in self.tools:
-            console.warning(f"Tool '{tool.name}' is already registered. Overwriting.")
+            log.warning(f"Tool '{tool.name}' is already registered. Overwriting.")
         self.tools[tool.name] = tool
-        console.info(f"Registered tool: {tool.name}")
+        log.info(f"Registered tool: {tool.name}")
 
     def register_function(self, name: str, description: str, parameters: dict[str, Any]):
         """Decorator to register a function as a tool."""
@@ -100,8 +100,8 @@ class ToolRegistry:
             raise ValueError(f"Tool '{name}' not found.")
 
         try:
-            console.info(f"Executing tool '{name}' with args: {arguments}")
+            log.info(f"Executing tool '{name}' with args: {arguments}")
             return tool.func(**arguments)
         except Exception as e:
-            console.error(f"Error executing tool '{name}': {e}")
+            log.error(f"Error executing tool '{name}': {e}")
             raise e

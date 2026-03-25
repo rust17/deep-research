@@ -8,7 +8,7 @@ from markitdown import MarkItDown
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
 
-from ..logs import console
+from ..log import log
 
 # --- Configuration ---
 MAX_LINE_LENGTH = 2000
@@ -122,7 +122,7 @@ class FileProcessor:
             if result and result.text_content:
                 return TextProcessor.normalize_and_limit([result.text_content])
         except Exception as e:
-            console.warning(f"MarkItDown extraction failed: {e}")
+            log.warning(f"MarkItDown extraction failed: {e}")
 
         return ""
 
@@ -134,5 +134,5 @@ class FileProcessor:
                     if isinstance(element, LTTextContainer):
                         yield element.get_text()
         except Exception as e:
-            console.warning(f"PDF extraction warning: {e}")
+            log.warning(f"PDF extraction warning: {e}")
             yield ""

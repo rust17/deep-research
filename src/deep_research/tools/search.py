@@ -1,8 +1,7 @@
 import asyncio
 from typing import List
 
-from ..logs import console
-from ._base import SearchResult
+from ..log import log
 
 
 class DDG:
@@ -34,10 +33,10 @@ class DDG:
                                 snippet=res.get("body", ""),
                             )
                         )
-            console.info(f"Found {len(parsed_results)} valid links for query: {query}")
+            log.info(f"Found {len(parsed_results)} valid links for query: {query}")
             return parsed_results
         except Exception as e:
-            console.error(f"Search phase failed: {e}")
+            log.error(f"Search phase failed: {e}")
             return []
 
 
@@ -46,7 +45,7 @@ def search(query: str, region: str = "wt-wt") -> dict:
     Search the internet for information. Returns a list of search results with titles, URLs, and snippets.
     """
     try:
-        console.info(f"search: Searching for '{query}'...")
+        log.info(f"search: Searching for '{query}'...")
         results = asyncio.run(DDG.search(query, region=region))
 
         if not results:
@@ -60,5 +59,5 @@ def search(query: str, region: str = "wt-wt") -> dict:
         return {"type": "text", "text": content}
 
     except Exception as e:
-        console.error(f"search failed: {e}")
+        log.error(f"search failed: {e}")
         return {"type": "text", "text": f"Error performing search: {str(e)}"}

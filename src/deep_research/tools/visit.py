@@ -9,7 +9,7 @@ import trafilatura
 from playwright.async_api import BrowserContext, Download, Page, Response, async_playwright
 
 from ..llm_client import LLMClient
-from ..logs import console
+from ..log import log
 from ..prompt import VISIT_SUMMARIZE_PROMPT
 from ._base import (
     GLOBAL_RESULT_LIMIT,
@@ -46,7 +46,7 @@ class BrowserCrawler:
                 await browser.close()
                 return pages
         except Exception as e:
-            console.error(f"Browser execution failed: {e}")
+            log.error(f"Browser execution failed: {e}")
             return []
 
     async def _visit(self, context: BrowserContext, result: SearchResult) -> CrawledPage:
@@ -67,7 +67,7 @@ class BrowserCrawler:
                     )
                 except Exception as e:
                     if "Download is starting" not in str(e) and "net::ERR_ABORTED" not in str(e):
-                        console.warning(f"Navigation error for {result.url}: {e}")
+                        log.warning(f"Navigation error for {result.url}: {e}")
 
                 download = await self._check_download(download_task, response)
 
@@ -79,7 +79,7 @@ class BrowserCrawler:
                     error_msg = "No response and no download detected"
 
             except Exception as e:
-                console.warning(f"Error visiting {result.url}: {e}")
+                log.warning(f"Error visiting {result.url}: {e}")
                 error_msg = str(e)
             finally:
                 if not download_task.done():
@@ -196,7 +196,7 @@ def visit(url: str, goal: str = "Extract key information") -> dict:
     Visit a specific URL and return its summarized content.
     """
     try:
-        console.info(f"visit: Visiting {url}...")
+        log.info(f"visit: Visiting {url}...")
         search_result = SearchResult(title="Target Page", url=url)
 
         pages = asyncio.run(BrowserCrawler.crawl([search_result]))
@@ -209,10 +209,10 @@ def visit(url: str, goal: str = "Extract key information") -> dict:
 
         llm = LLMClient()
         prompt = VISIT_SUMMARIZE_PROMPT.format(goal=goal, content=raw_results)
-        console.info(f"visit: Generating summary for {url}...")
+        log.info(f"visit: Generating summary for {url}...")
         response = llm.query(prompt, model_type="small")
         return {"type": "text", "text": response}
 
     except Exception as e:
-        console.error(f"visit failed: {e}")
+        log.error(f"visit failed: {e}")
         return {"type": "text", "text": f"Error visiting URL: {str(e)}"}

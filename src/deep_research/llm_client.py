@@ -6,7 +6,7 @@ import tiktoken
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .logs import console
+from .log import log
 
 # 加载环境变量
 load_dotenv()
@@ -17,7 +17,7 @@ class LLMClient:
         api_key = os.getenv("OPENAI_API_KEY")
         base_url = os.getenv("OPENAI_BASE_URL")  # Optional
         if not api_key:
-            console.warning("OPENAI_API_KEY not found in environment variables.")
+            log.warning("OPENAI_API_KEY not found in environment variables.")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = os.getenv("MODEL_NAME", "gpt-4o")
@@ -45,17 +45,17 @@ class LLMClient:
                 model=self.model, messages=messages, temperature=temperature
             )
             if not response.choices:
-                console.error(f"LLM returned no choices. Full response: {response}")
+                log.error(f"LLM returned no choices. Full response: {response}")
                 raise ValueError("LLM returned no choices")
 
             content = response.choices[0].message.content
             if content is None:
-                console.error(f"LLM returned None for content. Full response: {response}")
+                log.error(f"LLM returned None for content. Full response: {response}")
                 raise ValueError("LLM returned empty content")
 
             return content.strip()
         except Exception as e:
-            console.error(f"LLM Query Failed ({self.model}): {e}")
+            log.error(f"LLM Query Failed ({self.model}): {e}")
             raise
 
     def query_json(self, prompt: str | List[Dict[str, str]]) -> dict[str, Any]:
@@ -75,8 +75,8 @@ class LLMClient:
 
             return json.loads(content)
         except json.JSONDecodeError:
-            console.error(f"Failed to decode JSON. Raw response content: {repr(raw_content)}")
+            log.error(f"Failed to decode JSON. Raw response content: {repr(raw_content)}")
             raise
         except Exception as e:
-            console.error(f"LLM JSON Query Failed: {e}")
+            log.error(f"LLM JSON Query Failed: {e}")
             raise
