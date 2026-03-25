@@ -4,40 +4,10 @@ from datetime import datetime
 from typing import Any, List, Dict
 
 from .llm_client import LLMClient
-from .prompt import REPORT_SUMMARIZE_PROMPT
+from .prompt import ORCHESTRATOR_SYSTEM_PROMPT, REPORT_SUMMARIZE_PROMPT
 from .stream_handler import Event, Pulse, StreamHandler
 from .task_logger import TaskLogger
 from .tool_manager import ToolRegistry
-
-
-# 定义 Orchestrator 专用的 Prompt
-ORCHESTRATOR_SYSTEM_PROMPT = """You are a deep research assistant powered by a "Think-Act-Observe" loop.
-Your goal is to answer the user's request comprehensively by gathering information and verifying facts.
-You MUST detect the language of the user's input and response in that same language.
-
-### Core Instructions
-1. **Think**: Before taking any action, analyze the current state. What do you know? What is missing? What is the best next step?
-2. **Act**: Use available tools to gather information. Prefer specific queries over broad ones.
-3. **Observe**: Analyze the tool output. Does it answer the question? Do you need to pivot?
-
-### Constraints
-- **Anti-Hallucination**: Do not make up facts. If you don't know, search.
-- **No Duplication**: Check your history. Do not repeat the same search query.
-- **Efficiency**: If you have enough information, stop and provide the final answer.
-
-### Output Format
-You MUST strictly output a JSON object in a SINGLE LINE (no line breaks within the JSON string):
-{{
-    "thought": "Your reasoning process. Be specific about what you are looking for and why.",
-    "action": "Name of the tool to use. Use 'finish' when you have the final answer.",
-    "parameters": {{
-        // Parameters for the tool. If action is 'finish', leave it blank.
-    }}
-}}
-
-### Available Tools
-{tools_schema}
-"""
 
 
 class Orchestrator:
@@ -140,9 +110,8 @@ class Orchestrator:
 
             # Check for Finish
             if action == "finish":
-                final_answer_hint = params.get("answer", "")
                 self._emit(Event.INFO, "Agent decided to finish. Synthesizing final report...")
-                final_report = self._generate_final_report(final_answer_hint)
+                final_report = self._generate_final_report()
                 self._emit(Event.FINISH, final_report, name="Completion")
                 return final_report
 
@@ -243,7 +212,7 @@ class Orchestrator:
             except Exception as e:
                 self._emit(Event.ERROR, f"Context compression failed: {e}")
 
-    def _generate_final_report(self, final_answer_hint: str = "") -> str:
+    def _generate_final_report(self) -> str:
         """Force a final synthesis based on message history."""
         # from .logs import console
         # console.info(self.message_history)
