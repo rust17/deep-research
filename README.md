@@ -74,6 +74,10 @@ uv run dr
   - `tools/`: Extensible tool modules (Search, Visit, etc.).
   - `llm_client.py`: Unified LLM interaction layer.
 
+## 🔗 Reference
+
+- [MiroThinker](https://github.com/MiroMindAI/MiroThinker)
+
 ## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
