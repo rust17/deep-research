@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import Any, List, Dict
 
 import tiktoken
@@ -65,18 +66,55 @@ class LLMClient:
             raw_content = self.query(prompt, temperature=0.5)
             content = raw_content
 
-            # 清洗内容：移除 Markdown 代码块标记
+            # 1. 清洗内容：移除 Markdown 代码块标记
+            content = content.strip()
             if content.startswith("```"):
-                # 找到第一个换行符和最后一个 ``` 的位置
-                first_newline = content.find("\n")
-                last_backticks = content.rfind("```")
-                if first_newline != -1 and last_backticks != -1:
-                    content = content[first_newline + 1 : last_backticks].strip()
+                match = re.search(r"```(?:json)?\s*(.*?)\s*```", content, re.DOTALL)
+                if match:
+                    content = match.group(1)
 
-            return json.loads(content)
-        except json.JSONDecodeError:
-            log.error(f"Failed to decode JSON. Raw response content: {repr(raw_content)}")
-            raise
+            # 2. 提取主体内容：尝试找到第一个 { 和最后一个 } 之间的内容
+            match = re.search(r"(\{.*\})", content, re.DOTALL)
+            if match:
+                content = match.group(1)
+            else:
+                # 实在没有 JSON 结构，包装成一个通用的字典，避免直接报错
+                if content.strip():
+                    return {"thought": content, "action": "none", "parameters": {}}
+
+            try:
+                # 尝试标准解析
+                return json.loads(content)
+            except json.JSONDecodeError:
+                try:
+                    # 尝试非严格解析（允许换行符等控制字符）
+                    return json.loads(content, strict=False)
+                except json.JSONDecodeError as e:
+                    # 尝试处理未转义的引号
+                    def escape_internal_quotes(m):
+                        prefix = m.group(1)  # "key": "
+                        value = m.group(2)  # value content
+                        suffix = m.group(3)  # "
+                        # 转义非转义的引号
+                        fixed_value = re.sub(r'(?<!\\)"', r"\"", value)
+                        return f"{prefix}{fixed_value}{suffix}"
+
+                    # 匹配 "key": "value" 结构，并转义 value 中的内部引号
+                    # 注意：后缀需要是结构化字符（逗号、右大括号或右方括号）
+                    fixed_content = re.sub(
+                        r'("[^"]*"\s*:\s*")(.*?)("(?=\s*[,}\]]))',
+                        escape_internal_quotes,
+                        content,
+                        flags=re.DOTALL,
+                    )
+                    try:
+                        return json.loads(fixed_content, strict=False)
+                    except json.JSONDecodeError:
+                        # 如果还是不行，记录错误并抛出原始异常
+                        log.error(
+                            f"Failed to decode JSON even after repair. Raw: {repr(raw_content)}"
+                        )
+                        raise e
         except Exception as e:
             log.error(f"LLM JSON Query Failed: {e}")
             raise

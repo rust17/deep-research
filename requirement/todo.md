@@ -24,6 +24,6 @@ refactor:
     - [x] 把所有消息放进 message_history，不再保存到临时文件了，message_history 即是所有的上下文
 
 ---
+
 refactor:
-    - [ ] 整合 message_history 和 _emit
     - [x] 取消 cli 模式，只有 gui 一个入口

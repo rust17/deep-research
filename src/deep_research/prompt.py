@@ -31,7 +31,7 @@ You MUST detect the language of the user's input and response in that same langu
 ### Constraints
 - **Anti-Hallucination**: Do not make up facts. If you don't know, search.
 - **No Duplication**: Check your history. Do not repeat the same search query.
-- **Efficiency**: If you have enough information, stop and provide the final answer.
+- **Depth Guidelines**: Do not stop after finding a plausible answer.
 
 ### Output Format
 You MUST strictly output a JSON object in a SINGLE LINE (no line breaks within the JSON string):

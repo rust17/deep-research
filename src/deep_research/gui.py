@@ -127,6 +127,7 @@ def run_app():
         base_url = st.text_input(
             "Base URL",
             value=os.getenv("OPENAI_BASE_URL", "https://api-inference.modelscope.cn/v1"),
+            autocomplete="off",
         )
         if base_url:
             os.environ["OPENAI_BASE_URL"] = base_url
@@ -134,13 +135,14 @@ def run_app():
         model_name = st.text_input(
             "模型名称 (Model Name)",
             value=os.getenv("MODEL_NAME", "Qwen/Qwen3.5-122B-A10B"),
+            autocomplete="off",
         )
         if model_name:
             os.environ["MODEL_NAME"] = model_name
 
         st.slider("最大循环次数", min_value=1, max_value=20, value=10, key="max_loops_slider")
 
-        st.info("配置模型进行深度调研。")
+        st.info(f"默认使用 {model_name} 进行研究，你也可以配置模型进行深度调研")
 
     # 初始化状态
     if "running" not in st.session_state:
@@ -157,10 +159,7 @@ def run_app():
         st.session_state.research_thread = None
 
     # 主界面逻辑
-    st.text_input(
-        "请输入您的调研目标:",
-        key="goal_input",
-    )
+    st.text_input("请输入您的调研目标:", key="goal_input", autocomplete="off")
 
     col1, col2 = st.columns(2)
 
