@@ -213,8 +213,8 @@ class Orchestrator:
 
     def _generate_final_report(self) -> str:
         """Force a final synthesis based on message history."""
-        # from .logs import console
-        # console.info(self.message_history)
+        # from .log import log
+        # log.info(f"\n{self.message_history}\n")
 
         prompt = f"""
 ### Execution History
