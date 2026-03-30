@@ -3,7 +3,6 @@ import mimetypes
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional
 
 import trafilatura
 from playwright.async_api import BrowserContext, Download, Page, Response, async_playwright
@@ -29,7 +28,7 @@ class BrowserCrawler:
         self.timeout = timeout
         self.semaphore = asyncio.Semaphore(5)
 
-    async def crawl(self, results: List[SearchResult], headless: bool = True) -> List[CrawledPage]:
+    async def crawl(self, results: list[SearchResult], headless: bool = True) -> list[CrawledPage]:
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=headless)
@@ -105,8 +104,8 @@ class BrowserCrawler:
         )
 
     async def _check_download(
-        self, download_task: asyncio.Task, response: Optional[Response]
-    ) -> Optional[Download]:
+        self, download_task: asyncio.Task, response: Response | None
+    ) -> Download | None:
         try:
             if download_task.done():
                 return await download_task
@@ -174,7 +173,7 @@ class BrowserCrawler:
         return False
 
 
-def _format_results(pages: List[CrawledPage]) -> str:
+def _format_results(pages: list[CrawledPage]) -> str:
     raw_results = ""
     current_total = 0
 

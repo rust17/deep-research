@@ -16,10 +16,9 @@ class Tool:
 class ToolRegistry:
     def __init__(self):
         self.tools: dict[str, Tool] = {}
-        self._register_default_tools()
 
-    def _register_default_tools(self):
-        """Register default tools (search, visit)."""
+    def register_search_and_visit(self):
+        """Register default tools (search, visit) for Sub-Agents."""
         from .tools import search, visit
 
         # Register search

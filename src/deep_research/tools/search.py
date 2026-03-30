@@ -1,5 +1,4 @@
 import asyncio
-from typing import List
 
 from ..log import log
 from ._base import SearchResult
@@ -11,7 +10,7 @@ class DDG:
     @staticmethod
     async def search(
         query: str, region: str = "wt-wt", max_results: int = 10
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         from ddgs import DDGS
 
         def _run_ddgs():

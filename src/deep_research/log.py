@@ -3,7 +3,7 @@ import os
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from rich.console import Console as RichConsole
 
@@ -36,7 +36,7 @@ class Log(RichConsole):
         event_type: Event,
         name: str,
         content: Any,
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ):
         """
         记录一个执行步骤。如果任务尚未开始，则自动创建。
@@ -84,7 +84,7 @@ class Log(RichConsole):
             event_type: Event,
             name: str,
             content: Any,
-            metadata: Optional[dict] = None,
+            metadata: dict | None = None,
         ):
             pulse = Pulse(
                 type=event_type,

@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import Any, List, Dict
+from typing import Any
 
 import tiktoken
 from dotenv import load_dotenv
@@ -38,7 +38,7 @@ class LLMClient:
         """Returns the context limit for the model."""
         return self.limit
 
-    def query(self, prompt: str | List[Dict[str, str]], temperature: float = 0.7) -> str:
+    def query(self, prompt: str | list[dict[str, str]], temperature: float = 0.7) -> str:
         """普通文本查询"""
         messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         try:
@@ -59,7 +59,7 @@ class LLMClient:
             log.error(f"LLM Query Failed ({self.model}): {e}")
             raise
 
-    def query_json(self, prompt: str | List[Dict[str, str]]) -> dict[str, Any]:
+    def query_json(self, prompt: str | list[dict[str, str]]) -> dict[str, Any]:
         """强制 JSON 输出查询"""
         raw_content = ""
         try:

@@ -1,8 +1,8 @@
 import asyncio
 import mimetypes
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Optional
 
 from markitdown import MarkItDown
 from pdfminer.high_level import extract_pages
