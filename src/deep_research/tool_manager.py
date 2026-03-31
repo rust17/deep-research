@@ -56,6 +56,32 @@ class ToolRegistry:
             },
         )(visit)
 
+    def register_delegate_task(self, stream_handler=None, stop_event=None, validator=None):
+        """Register the delegate_task tool for the Orchestrator."""
+        from .tools import delegate_task
+
+        self.register_function(
+            name="delegate_task",
+            description="Delegate a specific sub-task to a Worker Sub-Agent.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "sub_task": {
+                        "type": "string",
+                        "description": "The specific task to be investigated.",
+                    }
+                },
+                "required": ["sub_task"],
+            },
+        )(
+            lambda sub_task: delegate_task(
+                sub_task=sub_task,
+                stream_handler=stream_handler,
+                stop_event=stop_event,
+                validator=validator,
+            )
+        )
+
     def register(self, tool: Tool):
         """Register a tool instance."""
         if tool.name in self.tools:

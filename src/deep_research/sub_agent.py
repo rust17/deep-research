@@ -5,86 +5,71 @@ from typing import Any
 
 from .llm_client import LLMClient
 from .log import log
-from .prompt import ORCHESTRATOR_SYSTEM_PROMPT, REPORT_SUMMARIZE_PROMPT
+from .prompt import SUB_AGENT_SUMMARIZE_PROMPT, SUB_AGENT_SYSTEM_PROMPT
 from .stream_handler import Event, Pulse, StreamHandler
 from .tool_manager import ToolRegistry
 
 
-class Orchestrator:
+class SubAgent:
     def __init__(
         self,
-        user_goal: str,
-        max_loops: int = 15,
+        sub_task: str,
+        max_loops: int = 10,
         stream_handler: StreamHandler = None,
         stop_event: threading.Event = None,
     ):
-        self.user_goal = user_goal
+        self.sub_task = sub_task
         self.max_loops = max_loops
         self.stream_handler = stream_handler
         self.stop_event = stop_event
 
         self.llm = LLMClient()
         self.tool_registry = ToolRegistry()
-        self.tool_registry.register_delegate_task(
-            stream_handler=self.stream_handler,
-            stop_event=self.stop_event,
-        )
+        self.tool_registry.register_search_and_visit()
 
         # Context Management
         self.message_history: list[dict[str, str]] = []
         self._init_history()
 
     def _init_history(self):
-        """Initialize message history with system prompt and user goal."""
-        system_content = ORCHESTRATOR_SYSTEM_PROMPT.format(
+        """Initialize message history with system prompt and sub-task."""
+        system_content = SUB_AGENT_SYSTEM_PROMPT.format(
             tools_schema=json.dumps(self.tool_registry.get_tools_schema(), ensure_ascii=False)
         )
 
         self.message_history.append({"role": "system", "content": system_content})
 
-        user_init_msg = (
-            f"Current Date: {datetime.now().strftime('%Y-%m-%d')}\nUser Goal: {self.user_goal}"
-        )
+        user_init_msg = f"Current Date: {datetime.now().strftime('%Y-%m-%d')}\nYour assigned sub-task is:\n{self.sub_task}\nPlease begin your investigation."
         self.message_history.append({"role": "user", "content": user_init_msg})
 
     def _emit(
         self, event: Event, content: Any = None, name: str = "", metadata: dict = None
     ) -> Pulse | None:
         if not self.stream_handler:
-            # We still want to log to Task even if no stream handler
-            if event == Event.FINISH:
-                log.finish(result=content)
-            else:
-                log.step(event, name or event.value, content, metadata=metadata)
             return None
 
         pulse = Pulse(
             type=event,
             content=content,
-            name=name,
+            name=f"[SubAgent] {name}",
             metadata=metadata or {},
         )
         self.stream_handler.emit(pulse)
-
-        # 自动同步到 Task
-        if event == Event.FINISH:
-            log.finish(result=content)
-        else:
-            # 使用 name 作为步骤标题，如果没有则使用 event 的值
-            log.step(event, name or event.value, content, metadata=metadata)
-
         return pulse
 
     def run(self) -> str:
-        """Main execution loop."""
-        self._emit(Event.INIT, {"goal": self.user_goal})
+        """Main execution loop for the Sub-Agent."""
+        self._emit(Event.INFO, f"正在调研: {self.sub_task[:30]}...", name="Sub-Task Start")
+        log.info(f"SubAgent starting task: {self.sub_task}")
 
         loop_count = 0
 
         while loop_count < self.max_loops:
             # Check for stop signal
             if self.stop_event and self.stop_event.is_set():
-                self._emit(Event.WARN, "Received stop signal. Terminating research...")
+                msg = "Received stop signal. Terminating sub-task early."
+                self._emit(Event.WARN, msg)
+                log.warning(msg)
                 break
 
             loop_count += 1
@@ -94,13 +79,14 @@ class Orchestrator:
                 response = self.llm.query_json(self.message_history)
             except Exception as e:
                 loop_count -= 1
-                msg = f"LLM Error: {e}"
+                msg = f"LLM Error in SubAgent: {e}"
                 self._emit(Event.ERROR, msg, name="LLM Failure")
+                log.error(msg)
                 # Attempt to recover by adding error message to history
                 self.message_history.append(
                     {
                         "role": "user",
-                        "content": f"Error occurred: {msg}. Please retry or change strategy.",
+                        "content": f"Error occurred: {msg}. Please retry or try finishing.",
                     }
                 )
                 continue
@@ -117,13 +103,12 @@ class Orchestrator:
 
             # Log Thought
             self._emit(Event.THOUGHT, thought, name="Reasoning", metadata={"step": loop_count})
+            log.info(f"[SubAgent] Thought: {thought}")
 
             # Check for Finish
             if action == "finish":
-                self._emit(Event.INFO, "Agent decided to finish. Synthesizing final report...")
-                final_report = self._generate_final_report()
-                self._emit(Event.FINISH, final_report, name="Completion")
-                return final_report
+                log.info("[SubAgent] Finished data gathering. Moving to summarization.")
+                break
 
             # 3. Execute Tool (Act)
             result_data = self._execute_tool(action, params)
@@ -158,11 +143,41 @@ class Orchestrator:
             self._manage_context()
 
         # Fallback if loop limit reached
-        fallback_msg = "Reached maximum steps without a final answer."
-        self._emit(Event.WARN, fallback_msg)
-        final_report = self._generate_final_report()
-        self._emit(Event.FINISH, final_report)
-        return final_report
+        if loop_count >= self.max_loops:
+            fallback_msg = "Reached maximum steps for sub-task without finishing."
+            self._emit(Event.WARN, fallback_msg)
+            log.warning(fallback_msg)
+
+        # Separate summarization step
+        return self._summarize()
+
+    def _summarize(self) -> str:
+        """Synthesize the findings gathered in the sub-agent's loop."""
+        self._emit(Event.INFO, "正在总结调研结果...", name="Summarizing")
+        log.info("[SubAgent] Generating summary report...")
+
+        history = self.message_history[1:]
+
+        history.insert(
+            0,
+            {
+                "role": "system",
+                "content": SUB_AGENT_SUMMARIZE_PROMPT.format(sub_task=self.sub_task),
+            },
+        )
+
+        try:
+            summary = self.llm.query(history)
+            self._emit(Event.INFO, summary, name="SubAgent Summary Completed")
+            log.info("[SubAgent] Summary generated successfully.")
+            return summary
+        except Exception as e:
+            error_msg = f"Failed to generate summary: {e}"
+            self._emit(Event.ERROR, error_msg, name="Summarization Error")
+            log.error(f"[SubAgent] {error_msg}")
+            return (
+                f"Error during summarization: {e}\nRaw history:\n{json.dumps(self.message_history)}"
+            )
 
     def _execute_tool(self, action: str, params: dict[str, Any]) -> dict:
         """Executes the tool and logs the result."""
@@ -179,6 +194,7 @@ class Orchestrator:
         except Exception as e:
             error_msg = f"Tool execution failed: {str(e)}"
             self._emit(Event.ERROR, error_msg, name=action)
+            log.error(f"[SubAgent] {error_msg}")
             return {"type": "text", "text": error_msg}
 
     def _manage_context(self):
@@ -197,6 +213,7 @@ class Orchestrator:
                 Event.INFO,
                 f"Context size ({token_count} tokens) exceeds threshold ({threshold}). Compressing...",
             )
+            log.info(f"[SubAgent] Compressing context ({token_count} > {threshold})")
 
             system_and_goal = self.message_history[:2]
             recent_messages = self.message_history[-4:]
@@ -211,7 +228,6 @@ class Orchestrator:
             """
 
             try:
-                self._emit(Event.INFO, "Compressing context...")
                 summary = self.llm.query(summary_prompt)
 
                 new_history = system_and_goal
@@ -224,20 +240,4 @@ class Orchestrator:
                 self._emit(Event.INFO, "Context compressed successfully.")
             except Exception as e:
                 self._emit(Event.ERROR, f"Context compression failed: {e}")
-
-    def _generate_final_report(self) -> str:
-        """Force a final synthesis based on message history."""
-        prompt: list[dict[str, str]] = []
-        prompt.append(
-            {"role": "system", "content": REPORT_SUMMARIZE_PROMPT.format(user_goal=self.user_goal)}
-        )
-        prompt.append(
-            {
-                "role": "user",
-                "content": f"""
-### Execution History
-{self.message_history[1:]}
-""",
-            }
-        )
-        return self.llm.query(prompt)
+                log.error(f"[SubAgent] Context compression failed: {e}")

@@ -1,5 +1,6 @@
 import logging
 
+from .delegate import delegate_task
 from .search import search
 from .visit import visit
 
@@ -10,4 +11,4 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("ddgs").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-__all__ = ["search", "visit"]
+__all__ = ["search", "visit", "delegate_task"]

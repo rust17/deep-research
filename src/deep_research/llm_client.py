@@ -42,8 +42,9 @@ class LLMClient:
         """普通文本查询"""
         messages = prompt if isinstance(prompt, list) else [{"role": "user", "content": prompt}]
         try:
+            # log.info(f"\n\n ({messages})\n\n")
             response = self.client.chat.completions.create(
-                model=self.model, messages=messages, temperature=temperature
+                model=self.model, messages=messages, temperature=temperature, timeout=120.0
             )
             if not response.choices:
                 log.error(f"LLM returned no choices. Full response: {response}")

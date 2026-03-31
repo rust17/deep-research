@@ -208,7 +208,19 @@ def visit(url: str, goal: str = "Extract key information") -> dict:
         raw_results = _format_results(pages)
 
         llm = LLMClient()
-        prompt = VISIT_SUMMARIZE_PROMPT.format(goal=goal, content=raw_results)
+
+        prompt: list[dict[str, str]] = []
+        prompt.append({"role": "system", "content": VISIT_SUMMARIZE_PROMPT.format(goal=goal)})
+        prompt.append(
+            {
+                "role": "user",
+                "content": f"""
+CONTENT TO ANALYZE:
+{raw_results}
+EXTRACTED INFORMATION:
+""",
+            }
+        )
         log.info(f"visit: Generating summary for {url}...")
         response = llm.query(prompt)
         return {"type": "text", "text": response}

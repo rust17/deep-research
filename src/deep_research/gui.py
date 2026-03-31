@@ -36,7 +36,7 @@ def run_agent_thread(goal, max_loops, event_queue, stop_event):
         event_queue.put(Pulse(type=Event.ERROR, content=str(e), name="Fatal Error"))
 
 
-def render_event(pulse, index, completed_actions, status_container, active_status_ctx):
+def render_event(pulse, index, completed_actions, status_container, status_stack):
     """Renders a single event to the container."""
     with status_container:
         if pulse.type == Event.INIT:
@@ -44,8 +44,11 @@ def render_event(pulse, index, completed_actions, status_container, active_statu
 
         elif pulse.type == Event.THOUGHT:
             with st.chat_message("assistant"):
+                # 为子智能体的思考增加标识
+                is_sub = pulse.name.startswith("[SubAgent]")
+                prefix = "🧪 **子任务思考**" if is_sub else "🤔 **思考**"
                 step = pulse.metadata.get("step", "?")
-                st.markdown(f"**思考 (步骤 {step}):**\n{pulse.content}")
+                st.markdown(f"{prefix} (步骤 {step}):\n{pulse.content}")
 
         elif pulse.type == Event.ACTION:
             # 检查该动作是否在后续事件中已完成
@@ -60,51 +63,62 @@ def render_event(pulse, index, completed_actions, status_container, active_statu
                     label = f"❌ 工具执行出错: {pulse.name}"
                     state = "error"
 
-                # 直接以最终状态创建，且默认收起(expanded=False)历史记录以减少视觉干扰
                 with st.status(label, state=state, expanded=False):
                     st.write(f"**参数:** {pulse.content}")
                     if final_pulse.type == Event.OBSERVATION:
                         st.write("**结果:**")
-                        st.write(final_pulse.content)
+                        # 如果结果是字典且包含 text，优先显示 text
+                        obs_content = final_pulse.content
+                        if isinstance(obs_content, dict) and "text" in obs_content:
+                            st.write(obs_content["text"])
+                            if "metadata" in obs_content:
+                                with st.expander("查看详细数据"):
+                                    st.write(obs_content["metadata"])
+                        else:
+                            st.write(obs_content)
                     else:
                         st.error(f"**错误:** {final_pulse.content}")
-
-                # 标记 active_status_ctx 为 None，告诉后续的 OBSERVATION 脉冲不要再处理
-                active_status_ctx[0] = None
             else:
-                # 正在运行的动作：保持原样
+                # 正在运行的动作
                 status = st.status(
                     f"🛠️ 正在调用工具: {pulse.name}...", expanded=True, state="running"
                 )
                 status.write(f"参数: {pulse.content}")
-                active_status_ctx[0] = status
+                status_stack.append(status)
 
         elif pulse.type == Event.OBSERVATION:
-            # 只有在 active_status_ctx[0] 存在时才处理（即这是当前正在发生的、还没被合并渲染的事件）
-            if active_status_ctx[0]:
-                active_status_ctx[0].update(
+            if status_stack:
+                status = status_stack.pop()
+                status.update(
                     label=f"✅ 工具 {pulse.name} 执行完毕 (耗时: {pulse.metadata.get('duration', 0):.2f}s)",
                     state="complete",
                 )
-                with active_status_ctx[0]:
-                    st.write(pulse.content)
-                active_status_ctx[0] = None
-            # 如果 active_status_ctx[0] 为 None，说明该结果已经合并到 ACTION 中渲染了，此处直接跳过
+                with status:
+                    obs_content = pulse.content
+                    if isinstance(obs_content, dict) and "text" in obs_content:
+                        st.write(obs_content["text"])
+                    else:
+                        st.write(obs_content)
 
         elif pulse.type == Event.STEP:
-            st.divider()
+            # st.divider()
+            pass
 
         elif pulse.type == Event.INFO:
-            st.toast(pulse.content)
+            # 只有短文本才使用 toast
+            if isinstance(pulse.content, str) and len(pulse.content) < 100:
+                st.toast(f"{pulse.name}: {pulse.content}" if pulse.name else pulse.content)
+            else:
+                with st.expander(f"ℹ️ 状态更新: {pulse.name or '详情'}", expanded=False):
+                    st.write(pulse.content)
 
         elif pulse.type == Event.WARN:
             st.warning(pulse.content)
 
         elif pulse.type == Event.ERROR:
-            # 如果工具执行出错，也要关闭状态
-            if active_status_ctx[0]:
-                active_status_ctx[0].update(label=f"❌ 工具执行出错: {pulse.name}", state="error")
-                active_status_ctx[0] = None
+            if status_stack:
+                status = status_stack.pop()
+                status.update(label=f"❌ 工具执行出错: {pulse.name}", state="error")
             st.error(f"⚠️ 错误: {pulse.content}")
 
         elif pulse.type == Event.FINISH:
@@ -230,18 +244,18 @@ def run_app():
 
         # 预处理事件列表：找出已完成的 ACTION 及其对应的结束事件（OBSERVATION 或 ERROR）
         completed_actions = {}  # index of ACTION -> final Pulse (OBSERVATION/ERROR)
-        last_action_idx = -1
+        action_stack = []
         for i, pulse in enumerate(st.session_state.events):
             if pulse.type == Event.ACTION:
-                last_action_idx = i
-            elif pulse.type in [Event.OBSERVATION, Event.ERROR] and last_action_idx != -1:
-                completed_actions[last_action_idx] = pulse
-                last_action_idx = -1
+                action_stack.append(i)
+            elif pulse.type in [Event.OBSERVATION, Event.ERROR] and action_stack:
+                idx = action_stack.pop()
+                completed_actions[idx] = pulse
 
         # 渲染所有事件（回放）
-        active_status_ctx = [None]
+        status_stack = []
         for i, pulse in enumerate(st.session_state.events):
-            render_event(pulse, i, completed_actions, status_container, active_status_ctx)
+            render_event(pulse, i, completed_actions, status_container, status_stack)
 
         # 自动刷新以获取新事件
         if st.session_state.running:
