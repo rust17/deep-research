@@ -17,7 +17,8 @@ An autonomous research assistant powered by LLMs, designed to perform deep infor
 
 ## 🌟 Key Features
 
-- **Autonomous Orchestration**: The `Orchestrator` engine recursively breaks down complex user goals into actionable sub-tasks.
+- **Multi-Agent Orchestration**: A specialized `Orchestrator` decomposes goals into sub-tasks, delegated to focused `SubAgents` for deep investigation.
+- **Robust ReAct Framework**: Built on a unified `BaseReActAgent` abstraction, ensuring consistent reasoning, acting, and context management across all agent roles.
 - **Real-time Event Streaming**: Powered by a custom `StreamHandler`, providing live feedback on Thoughts, Actions, and tool outputs.
 - **Powerful Toolset**:
   - **Smart Search**: Integrated with DuckDuckGo for up-to-date web discovery.
@@ -28,7 +29,7 @@ An autonomous research assistant powered by LLMs, designed to perform deep infor
 ## 🛠️ Technical Stack
 
 - **Core**: Python 3.12+
-- **Agent Framework**: Custom orchestration with OpenAI-compatible API integration.
+- **Agent Framework**: Custom ReAct orchestration with OpenAI-compatible API integration.
 - **UI**: Streamlit
 - **Package Management**: [uv](https://github.com/astral-sh/uv)
 
@@ -68,11 +69,13 @@ uv run dr
 ## 📂 Project Structure
 
 - `src/deep_research/`
-  - `orchestrator.py`: Main logic for the autonomous research loop.
+  - `agents/`: Core agent roles (`Orchestrator`, `SubAgent`, `Validator`) inheriting from a shared `BaseAgent`.
+  - `core/`: Infrastructure layer including `LLMClient`, `Log`, and `StreamHandler`.
+  - `tools/`: Extensible tool modules and the `ToolRegistry` manager.
+  - `prompts/`: Role-specific system instructions and templates.
+  - `models.py`: Shared data models for events and pulses.
+  - `config.py`: Global configuration and environment management.
   - `gui.py`: Streamlit frontend implementation.
-  - `stream_handler.py`: Event-driven system for real-time UI updates.
-  - `tools/`: Extensible tool modules (Search, Visit, etc.).
-  - `llm_client.py`: Unified LLM interaction layer.
 
 ## 🔗 Reference
 
