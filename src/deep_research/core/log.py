@@ -7,7 +7,7 @@ from typing import Any
 
 from rich.console import Console as RichConsole
 
-from .stream_handler import Event, Pulse
+from ..models import Event, Pulse
 
 
 class Log(RichConsole):

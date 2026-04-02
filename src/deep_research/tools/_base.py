@@ -8,7 +8,7 @@ from markitdown import MarkItDown
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextContainer
 
-from ..log import log
+from ..core.log import log
 
 # --- Configuration ---
 MAX_LINE_LENGTH = 2000

@@ -1,6 +1,6 @@
 import asyncio
 
-from ..log import log
+from ..core.log import log
 from ._base import SearchResult
 
 

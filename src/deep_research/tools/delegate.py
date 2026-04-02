@@ -1,10 +1,8 @@
 import threading
-from typing import Any
 
-from ..log import log
-from ..sub_agent import SubAgent
-from ..validator import ValidatorAgent
-from ..stream_handler import StreamHandler
+from ..core.log import log
+from ..core.stream_handler import StreamHandler
+from ..agents.validator import ValidatorAgent
 
 
 def delegate_task(
@@ -16,6 +14,8 @@ def delegate_task(
     """
     Delegate a specific sub-task to a Worker Sub-Agent.
     """
+    from ..agents.sub_agent import SubAgent
+
     log.info(f"MainAgent delegating task: {sub_task}")
 
     try:
@@ -33,8 +33,6 @@ def delegate_task(
             return {"text": summary_report}
 
         # 2. Validate Result
-        # Note: In the original orchestrator.py, this was unreachable due to an early return.
-        # We include it here but it will only execute if validator is passed.
         validation_result = validator.validate(sub_task, summary_report)
 
         if validation_result.get("is_valid"):

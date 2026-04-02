@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .log import log
+from ..core.log import log
 
 
 @dataclass
@@ -19,7 +19,8 @@ class ToolRegistry:
 
     def register_search_and_visit(self):
         """Register default tools (search, visit) for Sub-Agents."""
-        from .tools import search, visit
+        from .search import search
+        from .visit import visit
 
         # Register search
         self.register_function(
@@ -58,7 +59,7 @@ class ToolRegistry:
 
     def register_delegate_task(self, stream_handler=None, stop_event=None, validator=None):
         """Register the delegate_task tool for the Orchestrator."""
-        from .tools import delegate_task
+        from .delegate import delegate_task
 
         self.register_function(
             name="delegate_task",

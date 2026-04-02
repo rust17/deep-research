@@ -7,9 +7,9 @@ from pathlib import Path
 import trafilatura
 from playwright.async_api import BrowserContext, Download, Page, Response, async_playwright
 
-from ..llm_client import LLMClient
-from ..log import log
-from ..prompt import VISIT_SUMMARIZE_PROMPT
+from ..core.llm_client import LLMClient
+from ..core.log import log
+from ..prompts.sub_agent import VISIT_SUMMARIZE_PROMPT
 from ._base import (
     GLOBAL_RESULT_LIMIT,
     SEARCH_TIMEOUT,

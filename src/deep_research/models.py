@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -29,21 +28,3 @@ class Pulse:
         data = asdict(self)
         data["type"] = self.type.value
         return data
-
-
-class StreamHandler:
-    def __init__(self):
-        self._subscribers: list[Callable[[Pulse], None]] = []
-
-    def subscribe(self, callback: Callable[[Pulse], None]):
-        self._subscribers.append(callback)
-
-    def emit(self, pulse: Pulse):
-        for subscriber in self._subscribers:
-            try:
-                subscriber(pulse)
-            except Exception as e:
-                print(f"Error in subscriber: {e}")
-
-
-default_stream_handler = StreamHandler()

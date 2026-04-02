@@ -1,8 +1,8 @@
 from typing import Any
 
-from .llm_client import LLMClient
-from .log import log
-from .prompt import VALIDATOR_SYSTEM_PROMPT
+from ..core.llm_client import LLMClient
+from ..core.log import log
+from ..prompts.validator import VALIDATOR_SYSTEM_PROMPT
 
 
 class ValidatorAgent:

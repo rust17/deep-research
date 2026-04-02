@@ -12,8 +12,9 @@ project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.deep_research.orchestrator import Orchestrator
-from src.deep_research.stream_handler import Event, Pulse, StreamHandler
+from src.deep_research.agents.orchestrator import Orchestrator
+from src.deep_research.core.stream_handler import StreamHandler
+from src.deep_research.models import Event, Pulse
 
 
 def run_agent_thread(goal, max_loops, event_queue, stop_event):
@@ -265,7 +266,7 @@ def run_app():
     # 展示结果
     if st.session_state.report:
         if st.session_state.running:
-            # 如果 report 存在但 running 仍为 True（可能是刚刚 finish 还没设为 False），在上面循环里应该已经处理了
+            # 如果 report 存在 but running 仍为 True（可能是刚刚 finish 还没设为 False），在上面循环里应该已经处理了
             pass
         else:
             st.success("调研完成！")
